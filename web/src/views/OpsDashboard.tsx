@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import { ApiError } from "../api";
 import type { Api } from "../api";
 import { qs } from "../api";
-import { ConfirmDialog, DataTable, Metric, Placeholder, Skeleton, StatusBadge } from "../components";
+import { ConfirmDialog, DataTable, Metric, Skeleton, StatusBadge } from "../components";
+import { FailureDashboard } from "../features/ops/failures/FailureDashboard";
+import { FindingsPanel } from "../features/ops/findings/FindingsPanel";
+import { ReportsPanel } from "../features/ops/reports/ReportsPanel";
 import { actorLabel, inr, partyName, whenTime } from "../format";
 import type { Account, Adjustment, AgentRun, AuditEntry } from "../types";
 
@@ -14,11 +17,13 @@ export function OpsDashboard({
   api,
   section,
   focus,
+  onOpenAccount,
   onToast,
 }: {
   api: Api;
   section: string;
   focus: Account | null;
+  onOpenAccount?: (account: Account) => void;
   onToast?: (text: string, tone?: "ok" | "err") => void;
 }) {
   const [loading, setLoading] = useState(true);
@@ -95,13 +100,15 @@ export function OpsDashboard({
 
   return (
     <div className="ops">
-      <header className="panel-head">
-        <div>
-          <p className="eyebrow">Ops control tower</p>
-          <h1>Control tower</h1>
-          <p className="muted">Ops has no customer chat. This screen approves proposals and reads the log.</p>
-        </div>
-      </header>
+      {section === "queue" || section === "overview" ? (
+        <header className="panel-head">
+          <div>
+            <p className="eyebrow">Ops control tower</p>
+            <h1>Control tower</h1>
+            <p className="muted">Ops has no customer chat. This screen approves proposals and reads the log.</p>
+          </div>
+        </header>
+      ) : null}
       {error ? (
         <p className="error" role="alert">
           {error}
@@ -117,7 +124,9 @@ export function OpsDashboard({
           </p>
         </article>
       ) : null}
-      {loading ? <Skeleton rows={3} label="Loading the control tower" /> : null}
+      {loading && section !== "failures" && section !== "reports" && section !== "findings" ? (
+        <Skeleton rows={3} label="Loading the control tower" />
+      ) : null}
       {!loading && !error && (section === "queue" || section === "overview") ? (
         <>
           <div className="metrics">
@@ -215,16 +224,11 @@ export function OpsDashboard({
               <p className="empty">No plan-change proposals. Plan changes are a Phase 4 placeholder.</p>
             ) : null}
           </section>
-          <div className="placeholders">
-            <Placeholder phase="Phase 4" title="Failure dashboard">
-              Live failures, stuck bill runs, consumer lag, and the fraud and revenue checks. The event publisher is still a no-op, so this panel is a placeholder.
-            </Placeholder>
-            <Placeholder phase="Phase 4" title="Reports">
-              Daily and monthly billing, collections, dispute, and treatment reports are not generated yet.
-            </Placeholder>
-          </div>
         </>
       ) : null}
+      {section === "failures" ? <FailureDashboard api={api} onOpenAccount={onOpenAccount} /> : null}
+      {section === "reports" ? <ReportsPanel api={api} /> : null}
+      {section === "findings" ? <FindingsPanel api={api} onOpenAccount={onOpenAccount} /> : null}
       {!loading && !error && section === "runs" ? (
         <section className="panel" aria-label="Recent agent runs">
           <h2>Recent agent runs</h2>

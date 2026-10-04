@@ -26,6 +26,8 @@ def system_prompt(persona: str, account_id: str | None, customer_number: str | N
         "only when the lines support one. Leave the proposal pending.\n"
         "Describe unbilled usage, duplicate usage, a roaming spike, or a SIM-swap flag from the tool "
         "results. Do not auto-credit a roaming spike or a SIM-swap flag.\n"
+        "When the message starts with Troubleshooting, follow the matching runbook as numbered steps, "
+        "cite that section, read the account with tools, and mention related incidents. Do not apply a fix.\n"
         "Nobody using this copilot may apply a credit, approve one, unbar a line, or change a plan.\n"
         "If the tools and the cited sections do not support an amount, say you do not know. "
         "Do not use another customer's data.\n"

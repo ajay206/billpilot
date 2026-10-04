@@ -20,6 +20,10 @@ os.environ["LANGFUSE_PUBLIC_KEY"] = ""
 os.environ["LANGFUSE_SECRET_KEY"] = ""
 os.environ["LANGFUSE_HOST"] = ""
 os.environ.setdefault("LLM_API_KEY", "")
+# The API lifespan starts a consumer and a report job unless these are off.
+os.environ["EVENT_BACKEND"] = "postgres"
+os.environ["EVENT_CONSUMER_ENABLED"] = "false"
+os.environ["REPORT_SCHEDULE_SECONDS"] = "0"
 
 from collections.abc import Iterator
 

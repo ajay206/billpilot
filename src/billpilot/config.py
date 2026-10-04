@@ -88,6 +88,24 @@ class Settings(BaseSettings):
     langfuse_secret_key: str = ""
     langfuse_host: str = ""
 
+    # "postgres" is the free-tier default (Render has no broker). Compose sets "redpanda".
+    event_backend: str = "postgres"
+    redpanda_bootstrap: str = "localhost:19092"
+    event_consumer_enabled: bool = True
+    event_poll_seconds: float = 2.0
+    event_max_retries: int = 3
+    stuck_bill_run_seconds: int = 900
+    # 0 disables the in-process report job. Render uses a long interval so a free instance stays quiet.
+    report_schedule_seconds: int = 21600
+
+    @field_validator("event_backend", mode="before")
+    @classmethod
+    def _event_backend(cls, value: str) -> str:
+        normalized = str(value).strip().lower()
+        if normalized not in {"postgres", "redpanda"}:
+            raise ValueError("EVENT_BACKEND must be postgres or redpanda.")
+        return normalized
+
 
 @lru_cache
 def get_settings() -> Settings:

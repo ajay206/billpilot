@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 
 import type { Api } from "../api";
 import { qs } from "../api";
-import { AnswerText, DataTable, Placeholder, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
+import { AnswerText, DataTable, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
+import { TroubleshootPanel } from "../features/csr/troubleshoot/TroubleshootPanel";
 import { characteristic, inr, partyName, when, whenTime } from "../format";
 import type {
   Account,
@@ -19,7 +20,7 @@ import type {
   Usage,
 } from "../types";
 
-type Tab = "bills" | "lines" | "usage" | "payments" | "treatment" | "tickets" | "disputes";
+type Tab = "bills" | "lines" | "usage" | "payments" | "treatment" | "tickets" | "disputes" | "trouble";
 
 type Turn = {
   id: string;
@@ -38,6 +39,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "treatment", label: "Treatment" },
   { id: "tickets", label: "Tickets" },
   { id: "disputes", label: "Disputes" },
+  { id: "trouble", label: "Troubleshoot" },
 ];
 
 export function CsrConsole({ api, account }: { api: Api; account: Account | null }) {
@@ -325,11 +327,17 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 {disputes.length === 0 && adjustments.length === 0 ? <p className="empty">No disputes or credits.</p> : null}
               </div>
             ) : null}
+            {!loading && !loadError && tab === "trouble" ? (
+              <TroubleshootPanel
+                api={api}
+                accountId={account.id}
+                onCite={(doc, section) => setCitation({ doc, section })}
+              />
+            ) : null}
           </>
-        ) : null}
-        <Placeholder phase="Phase 4" title="CSR troubleshooting AI">
-          Paste an error and get numbered steps from the runbooks. That assistant is not in this build. The copilot beside this panel already cites the same runbook pages.
-        </Placeholder>
+        ) : (
+          <TroubleshootPanel api={api} accountId={null} onCite={(doc, section) => setCitation({ doc, section })} />
+        )}
       </section>
       <section className="panel copilot" aria-label="CSR copilot">
         <p className="eyebrow">Copilot</p>

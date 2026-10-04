@@ -9,6 +9,14 @@ import { fileURLToPath } from "node:url";
 
 import { chromium } from "playwright";
 
+async function postAndWait(page, urlPart, click) {
+  const done = page.waitForResponse(
+    (response) => response.url().includes(urlPart) && response.request().method() === "POST" && response.ok(),
+  );
+  await click();
+  await done;
+}
+
 const base = process.argv[2] || "http://127.0.0.1:8000";
 const outDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../docs/screenshots");
 
@@ -70,12 +78,48 @@ await page.getByRole("button", { name: "Ask" }).click();
 await page.getByRole("button", { name: /tool call/i }).waitFor();
 await page.screenshot({ path: path.join(outDir, "csr.png"), fullPage: true });
 
+await page.getByRole("tab", { name: "Troubleshoot" }).click();
+const trouble = page.getByRole("region", { name: /csr troubleshooting/i });
+await trouble.getByRole("button", { name: "Payment declined" }).click();
+await postAndWait(page, "/agent/troubleshoot", () => trouble.getByRole("button", { name: "Run troubleshooting" }).click());
+await trouble.getByRole("heading", { name: "Account checks" }).waitFor();
+await trouble.getByText(/csr-runbooks\.md/).first().waitFor();
+await page.screenshot({ path: path.join(outDir, "troubleshoot.png"), fullPage: true });
+
 await page.getByRole("button", { name: /ananya rao/i }).click();
 await page.getByRole("menuitem", { name: "Log out" }).click();
 await page.getByRole("button", { name: /sign in as meera kapoor/i }).click();
 await page.getByRole("button", { name: "Approve" }).first().waitFor();
-await page.getByRole("region", { name: /failure dashboard, phase 4/i }).waitFor();
 await page.screenshot({ path: path.join(outDir, "ops.png"), fullPage: true });
+
+await page.getByRole("button", { name: "Failures" }).click();
+const failures = page.getByRole("region", { name: /failure dashboard/i });
+await postAndWait(page, "/ops/faults/simulate", () => failures.getByRole("button", { name: "Simulate failures" }).click());
+await failures.getByText(/failed payment/i).first().waitFor();
+await postAndWait(page, "/replay", () => failures.getByRole("button", { name: "Replay" }).first().click());
+await failures.getByText(/Replayed|already replayed/i).first().waitFor();
+await page.screenshot({ path: path.join(outDir, "failures.png"), fullPage: true });
+
+await page.getByRole("button", { name: "Reports" }).click();
+const reports = page.getByRole("region", { name: /^reports$/i });
+await postAndWait(page, "/ops/reports/generate", () => reports.getByRole("button", { name: "Generate reports" }).click());
+await reports.getByRole("heading", { name: /billing summary, daily/i }).waitFor();
+await reports.getByRole("button", { name: "Generate reports" }).waitFor();
+await page.screenshot({ path: path.join(outDir, "reports.png"), fullPage: true });
+
+await page.getByRole("button", { name: "Findings" }).click();
+const findings = page.getByRole("region", { name: /fraud and revenue findings/i });
+await postAndWait(page, "/ops/assurance/run", () => findings.getByRole("button", { name: "Run checks" }).click());
+await findings.getByRole("button", { name: "Run checks" }).waitFor();
+await findings.getByRole("button", { name: "Open case" }).first().waitFor();
+await postAndWait(page, "/case", () => findings.getByRole("button", { name: "Open case" }).first().click());
+await findings.getByText(/TCK-RA-/).first().waitFor();
+const propose = findings.getByRole("button", { name: "Propose adjustment" }).first();
+if (await propose.count()) {
+  await postAndWait(page, "/adjustment", () => propose.click());
+  await findings.getByText(/^Credit ₹/).first().waitFor();
+}
+await page.screenshot({ path: path.join(outDir, "findings.png"), fullPage: true });
 
 await browser.close();
 console.log(`Wrote screenshots to ${outDir}`);

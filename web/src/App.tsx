@@ -1,7 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { createApi } from "./api";
-import { clearCsrf, currentUser, defaultSection, logout, roleHome, roleLabel, screenFromPath, sectionLabel } from "./auth";
+import {
+  clearCsrf,
+  currentUser,
+  defaultSection,
+  logout,
+  opsPath,
+  opsSectionFromPath,
+  roleHome,
+  roleLabel,
+  screenFromPath,
+  sectionLabel,
+} from "./auth";
 import type { Role, SessionUser } from "./auth";
 import { AppShell, Forbidden, LoginScreen, ToastRegion } from "./shell";
 import type { Account, Health } from "./types";
@@ -57,7 +68,7 @@ export function App() {
         setHealth(nextHealth);
         if (me) {
           setUser(me);
-          setSection(defaultSection(me.role));
+          setSection(me.role === "ops" ? opsSectionFromPath(window.location.pathname) : defaultSection(me.role));
         } else {
           setExpired(hadCookie);
         }
@@ -72,7 +83,11 @@ export function App() {
 
   useEffect(() => {
     if (!user) return;
-    if (!screenFromPath(path)) navigate(roleHome(user.role));
+    if (!screenFromPath(path)) {
+      navigate(roleHome(user.role));
+      return;
+    }
+    if (user.role === "ops") setSection(opsSectionFromPath(path));
   }, [user, path]);
 
   function pushToast(text: string, tone: "ok" | "err" = "ok") {
@@ -112,31 +127,42 @@ export function App() {
     return <LoginScreen expired={expired} demoMode={Boolean(health?.demoMode)} onSuccess={enter} />;
   }
 
+  const signedIn = user;
+
+  function chooseSection(id: string) {
+    if (signedIn.role === "ops") {
+      setSection(id);
+      navigate(opsPath(id));
+      return;
+    }
+    setSection(id);
+  }
+
   const screen = screenFromPath(path);
-  const allowed = screen === user.role;
+  const allowed = screen === signedIn.role;
   const crumbs = !allowed
     ? ["Access denied"]
-    : user.role === "csr"
+    : signedIn.role === "csr"
       ? ["Care", picked?.customerNumber ?? "Search", "Account 360"]
-      : [roleLabel(user.role), sectionLabel(user.role, section)];
+      : [roleLabel(signedIn.role), sectionLabel(signedIn.role, section)];
 
   return (
     <>
       <AppShell
-        user={user}
+        user={signedIn}
         demoMode={Boolean(health?.demoMode)}
         section={section}
-        onSection={setSection}
+        onSection={chooseSection}
         breadcrumbs={crumbs}
         api={api}
         onPickAccount={setPicked}
         onLogout={() => void signOut()}
       >
-        {!allowed ? <Forbidden role={user.role as Role} onHome={() => navigate(roleHome(user.role))} /> : null}
-        {allowed && user.role === "customer" ? <CustomerPortal api={api} section={section} /> : null}
-        {allowed && user.role === "csr" ? <CsrConsole api={api} account={picked} /> : null}
-        {allowed && user.role === "ops" ? (
-          <OpsDashboard api={api} section={section} focus={picked} onToast={pushToast} />
+        {!allowed ? <Forbidden role={signedIn.role as Role} onHome={() => navigate(roleHome(signedIn.role))} /> : null}
+        {allowed && signedIn.role === "customer" ? <CustomerPortal api={api} section={section} /> : null}
+        {allowed && signedIn.role === "csr" ? <CsrConsole api={api} account={picked} /> : null}
+        {allowed && signedIn.role === "ops" ? (
+          <OpsDashboard api={api} section={section} focus={picked} onOpenAccount={setPicked} onToast={pushToast} />
         ) : null}
       </AppShell>
       <ToastRegion toasts={toasts} />

@@ -19,10 +19,12 @@ from billpilot import __version__
 from billpilot.agent.tracing import tracing_configured
 from billpilot.api.agent_routes import router as agent_router
 from billpilot.api.auth_routes import router as auth_router
+from billpilot.api.ops_routes import router as ops_router
 from billpilot.api.routes import audit_router, router
 from billpilot.config import Settings, get_settings
-from billpilot.events import NullPublisher
 from billpilot.logging import configure_logging, request_id_var
+from billpilot.ops.pipeline import build_publisher
+from billpilot.ops.worker import start_workers
 from billpilot.ui import mount_ui
 
 DESCRIPTION = """
@@ -115,7 +117,9 @@ def _index_knowledge(settings: Settings) -> None:
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     _index_knowledge(app.state.settings)
+    stop = start_workers(app.state.settings, getattr(app.state.publisher, "transport", None))
     yield
+    stop.set()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -130,7 +134,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=_lifespan,
     )
     app.state.settings = settings
-    app.state.publisher = NullPublisher()
+    app.state.publisher = build_publisher(settings)
     from billpilot.api.security import RateLimiter
 
     app.state.limiter = RateLimiter(
@@ -151,6 +155,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit_router)
     app.include_router(agent_router)
     app.include_router(auth_router)
+    app.include_router(ops_router)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
@@ -169,6 +174,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "demoMode": demo,
             "llmBackend": current.llm_backend,
             "tracing": tracing_configured(current),
+            "eventBackend": current.event_backend,
         }
 
     if not mount_ui(app):

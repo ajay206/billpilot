@@ -192,6 +192,82 @@ def _reindex_knowledge() -> None:
     print(f"Indexed {count} policy sections.")
 
 
+def _session_engine():
+    settings = get_settings()
+    _wait_for_database(settings.database_url)
+    return create_engine(settings.database_url, pool_pre_ping=True)
+
+
+def _faults_simulate(scenarios: list[str] | None) -> None:
+    from billpilot.ops.pipeline import build_publisher
+    from billpilot.ops.simulate import simulate
+
+    settings = get_settings()
+    engine = _session_engine()
+    publisher = build_publisher(settings)
+    with Session(engine) as session:
+        event_ids = simulate(session, publisher, settings, scenarios)
+    engine.dispose()
+    print(json.dumps({"eventIds": event_ids, "scenarios": scenarios}))
+
+
+def _consume_once() -> None:
+    from billpilot.ops.pipeline import build_publisher, drain
+
+    settings = get_settings()
+    publisher = build_publisher(settings)
+    engine = _session_engine()
+    with Session(engine) as session:
+        count = drain(session, settings, publisher.transport)
+    engine.dispose()
+    print(f"Applied {count} queued events.")
+
+
+def _reports_generate() -> None:
+    from billpilot.ops.reports import generate_scheduled
+
+    engine = _session_engine()
+    with Session(engine) as session:
+        rows = generate_scheduled(session, "cli")
+    engine.dispose()
+    print(f"Wrote {len(rows)} report snapshots.")
+
+
+def _assurance(command: str, ground_truth: str | None) -> None:
+    from billpilot.ops.detectors import detect, persist_findings
+    from billpilot.ops.score import score_findings
+
+    engine = _session_engine()
+    with Session(engine) as session:
+        findings = detect(session)
+        if command == "run":
+            stored = persist_findings(session, findings)
+            print(f"Stored {len(stored)} findings.")
+            engine.dispose()
+            return
+        path = Path(ground_truth or get_settings().ground_truth_path)
+        labelled = json.loads(path.read_text())
+        scored = score_findings(findings, labelled)
+    engine.dispose()
+    print(
+        json.dumps(
+            {
+                "precision": scored["precision"],
+                "recall": scored["recall"],
+                "labelled": scored["labelled"],
+                "findings": scored["findings"],
+                "true_positive_anomalies": scored["true_positive_anomalies"],
+                "false_positive_findings": scored["false_positive_findings"],
+                "false_negative_anomalies": scored["false_negative_anomalies"],
+                "missed": scored["missed"],
+                "false_positives": scored["false_positives"],
+                "detectors": scored["detectors"],
+            },
+            indent=2,
+        )
+    )
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="billpilot")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -216,6 +292,19 @@ def main(argv: list[str] | None = None) -> None:
     knowledge = commands.add_parser("knowledge")
     knowledge_commands = knowledge.add_subparsers(dest="knowledge_command", required=True)
     knowledge_commands.add_parser("reindex")
+    faults = commands.add_parser("faults", help="Emit synthetic billing failures.")
+    faults_commands = faults.add_subparsers(dest="faults_command", required=True)
+    simulate_parser = faults_commands.add_parser("simulate")
+    simulate_parser.add_argument("--scenario", action="append", dest="scenarios")
+    commands.add_parser("consume", help="Apply queued events once.")
+    reports = commands.add_parser("reports")
+    reports_commands = reports.add_subparsers(dest="reports_command", required=True)
+    reports_commands.add_parser("generate")
+    assurance = commands.add_parser("assurance")
+    assurance_commands = assurance.add_subparsers(dest="assurance_command", required=True)
+    assurance_commands.add_parser("run")
+    score_parser = assurance_commands.add_parser("score")
+    score_parser.add_argument("--ground-truth")
     args = parser.parse_args(argv)
 
     if args.command == "migrate":
@@ -232,6 +321,18 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "knowledge":
         _reindex_knowledge()
+        return
+    if args.command == "faults":
+        _faults_simulate(args.scenarios)
+        return
+    if args.command == "consume":
+        _consume_once()
+        return
+    if args.command == "reports":
+        _reports_generate()
+        return
+    if args.command == "assurance":
+        _assurance(args.assurance_command, getattr(args, "ground_truth", None))
         return
 
     config = config_from_env()

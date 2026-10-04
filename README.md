@@ -1,8 +1,8 @@
 # BillPilot
 
-BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness. Phase 3 is the product surface: a customer portal, a CSR console, and an ops control tower, served by the same process, plus optional Langfuse traces and a free-tier deploy. Sign-in replaced the persona switcher. The browser session carries a user id. Role and scope are read from the `users` table on the server.
+BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness. Phase 3 is the product surface: a customer portal, a CSR console, and an ops control tower, served by the same process, plus optional Langfuse traces and a free-tier deploy. Sign-in replaced the persona switcher. The browser session carries a user id. Role and scope are read from the `users` table on the server. Phase 4 is the operations layer: a billing-event pipeline, a failure dashboard, SQL reports, rule-based fraud and revenue checks, and a CSR troubleshooting assistant.
 
-Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one. Kafka, reports, onboarding, and launch are later phases. See [Roadmap](#roadmap).
+Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one. Onboarding and launch are later phases. See [Roadmap](#roadmap).
 
 ## Synthetic data only
 
@@ -31,8 +31,13 @@ flowchart LR
     UI[Signed-in UI]
     Trace[Langfuse spans]
   end
+  subgraph phase4 [Phase 4]
+    Broker[Outbox and Redpanda]
+    Failures[Failure dashboard]
+    Reports[SQL reports]
+    Checks[Fraud and revenue checks]
+  end
   subgraph later [Later phases]
-    Broker["Phase 4 Kafka and reports"]
     Onboard[Phase 5 onboarding]
     Launch[Phase 6 launch]
   end
@@ -48,7 +53,10 @@ flowchart LR
   Loop --> DB
   UI -->|session cookie| API
   Loop --> Trace
-  API -.-> Broker
+  API --> Broker
+  Broker --> Failures
+  DB --> Reports
+  DB --> Checks
 ```
 
 The database is the system of record. The API translates internal words (`issued`, `posted`, `soft_bar`) into TMF-like words (`sent`, `done`, a trouble-ticket status). Writes that move money start as `pending_approval`. A different role applies them. Every write, including a copilot turn, is appended to `audit_log`.
@@ -63,7 +71,7 @@ Requirements: Docker, and for tests a local Python 3.12.
 docker compose up --build
 ```
 
-That starts Postgres, runs migrations, seeds 500 customers across 6 months, seeds the demo users, and serves the API and the UI from one process. Open <http://localhost:8000>. The login page lists the demo accounts. After sign-in, a customer lands on <http://localhost:8000/customer>, a CSR on <http://localhost:8000/csr>, and ops on <http://localhost:8000/ops>. The API reference is <http://localhost:8000/docs>.
+That starts Postgres and a single-node Redpanda, runs migrations, seeds 500 customers across 6 months, seeds the demo users, and serves the API and the UI from one process. Open <http://localhost:8000>. The login page lists the demo accounts. After sign-in, a customer lands on <http://localhost:8000/customer>, a CSR on <http://localhost:8000/csr>, and ops on <http://localhost:8000/ops>. The API reference is <http://localhost:8000/docs>.
 
 With no model key, a banner says the copilot is in demo mode. A laptop with limited RAM should use the smaller seed in [How to test locally](docs/deploy.md#how-to-test-locally).
 
@@ -74,6 +82,14 @@ With no model key, a banner says the copilot is in demo mode. A laptop with limi
 ![CSR console](docs/screenshots/csr.png)
 
 ![Ops control tower](docs/screenshots/ops.png)
+
+![Failure dashboard](docs/screenshots/failures.png)
+
+![Reports](docs/screenshots/reports.png)
+
+![Fraud and revenue findings](docs/screenshots/findings.png)
+
+![CSR troubleshooting](docs/screenshots/troubleshoot.png)
 
 Demo users (synthetic portfolio only — do not reuse these passwords anywhere else):
 
@@ -280,7 +296,7 @@ LLM_API_KEY=sk-...
 
 Any host that accepts `POST {LLM_BASE_URL}/chat/completions` works. Do not add a local model runtime. Embeddings default to `EMBEDDING_BACKEND=hash` (no download). `EMBEDDING_BACKEND=api` calls `{LLM_BASE_URL}/embeddings` and must return 256 dimensions. Reindex after changing it: `billpilot knowledge reindex`.
 
-Langfuse traces a turn only when `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` are all set. The SDK is installed with the app. One trace per chat (`billpilot.chat`) contains the guardrail check, each model call with tokens and estimated cost, each tool call, retrieval with the cited doc ids, the output check, and the decision. The trace id is stored on `agent_runs` and shown in the ops dashboard. If a variable is missing, or Langfuse is down, the turn still answers. CI and `docker compose up` leave the keys empty. The free Hobby setup is in [docs/deploy.md](docs/deploy.md).
+Langfuse traces a turn only when `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` are all set. The SDK is installed with the app. One trace per chat (`billpilot.chat`) or troubleshooting turn (`billpilot.troubleshoot`) contains the guardrail check, each model call with tokens and estimated cost, each tool call, retrieval with the cited doc ids, the output check, and the decision. A troubleshooting turn also has a `troubleshoot.start` span. The trace id is stored on `agent_runs` and shown in the ops dashboard. If a variable is missing, or Langfuse is down, the turn still answers. CI and `docker compose up` leave the keys empty. The free Hobby setup is in [docs/deploy.md](docs/deploy.md).
 
 ### Ask
 
@@ -304,7 +320,7 @@ curl -s -X POST -H 'X-API-Key: dev-ops-key' -H 'Content-Type: application/json' 
 
 ### Evals
 
-The harness builds 67 labelled cases from `data/ground_truth.json` (or from the generator if that file is missing). Counts: guardrail 15, policy 13, disputes 8, bill explanation 7, treatment 6, entitlements 5, CSR runbook 4, revenue assurance and fraud 4, payments 3, VAS and plan 2.
+The harness builds 72 labelled cases from `data/ground_truth.json` (or from the generator if that file is missing). Counts: guardrail 15, policy 13, disputes 8, bill explanation 7, treatment 6, entitlements 5, CSR runbook 9, revenue assurance and fraud 4, payments 3, VAS and plan 2. Five of the CSR runbook cases are troubleshooting turns (failed payment, unbar not applied, roaming not working, bill not generated, entitlement missing). CI scores those on the fake model. That is not a hosted-model measurement.
 
 CI runs the harness inside pytest against the fake model. That smoke test checks that guardrail cases are refused, that no case calls an approve tool, and that a report file is written. It is not a quality score.
 
@@ -312,7 +328,7 @@ No measured run is committed. The table is a placeholder. Fill it by running the
 
 | Metric | Fake smoke (CI) | Hosted model |
 | --- | --- | --- |
-| Cases | 67 | — |
+| Cases | 72 | — |
 | Fault detected | — | — |
 | Credit amount correct | — | — |
 | Accuracy | — | — |
@@ -333,11 +349,62 @@ LLM_BACKEND=api LLM_API_KEY=sk-... LLM_BASE_URL=https://api.openai.com/v1 LLM_MO
 python -m billpilot.evals --estimate-only --ground-truth data/ground_truth.json
 ```
 
-**Cost estimate, not a measurement.** At the built-in `gpt-4o-mini` prices (0.15 USD per million prompt tokens, 0.60 USD per million completion tokens), one full run of 67 cases is **0.078390 USD**. The formula assumes 3 calls per case, 1200 prompt tokens and 350 completion tokens per call. Hash embeddings are free and are not in that number. A different model uses `LLM_PRICE_TABLE` or the `LLM_*_PRICE_PER_MILLION` fallbacks. The fake backend costs 0.
+**Cost estimate, not a measurement.** At the built-in `gpt-4o-mini` prices (0.15 USD per million prompt tokens, 0.60 USD per million completion tokens), one full run of 72 cases is **0.084240 USD**. The formula assumes 3 calls per case, 1200 prompt tokens and 350 completion tokens per call. Hash embeddings are free and are not in that number. A different model uses `LLM_PRICE_TABLE` or the `LLM_*_PRICE_PER_MILLION` fallbacks. The fake backend costs 0.
+
+## Operations
+
+Events are written to `outbox_events` in the same transaction as the API write. `EVENT_BACKEND=postgres` (the default, and the Render setting) is the queue: the consumer reads `pending` rows. `EVENT_BACKEND=redpanda` (Docker Compose) relays the same row to a single-node Redpanda after commit. Topics: `usage.rated`, `bill.run`, `payment.events`, `treatment.actions`, `entitlement.changes`, `provisioning.events`, `system.errors`. `provisioning.events` is extra to the deck list so a provisioning mismatch is not mixed with an entitlement change.
+
+The consumer opens incidents for failed bill runs, failed payments and autopay, provisioning or entitlement mismatches, and dead-lettered events. A bill run still `started` after `STUCK_BILL_RUN_SECONDS` (900) becomes `stuck`. Poison events (`system.error.poison`) retry inside one consume pass and land on `dead_letter_events` with `retry_count` 3. `POST /ops/deadLetters/{id}/replay` is ops-only, idempotent, and audited once. `billpilot faults simulate` and `POST /ops/faults/simulate` emit the synthetic failures.
+
+Reports (billing, collections and treatment, disputes and credits, payments, agent usage and cost) are SQL aggregates for the latest invoice day and that month. `billpilot reports generate` or **Generate reports** on `/ops` writes them. CSV is `GET /ops/reports/{id}/csv` and a download button that builds the file from the JSON.
+
+Fraud and revenue checks are SQL. They do not read the answer key. A finding matches a planted anomaly when the account and the anomaly type are the same. Controls are not labels. Precision is matched findings divided by all findings. Recall is matched labels divided by labelled anomalies. The detectors and the planted anomalies come from the same synthetic generator, so these numbers show that the detectors match their spec. They are not a measure of real-world accuracy, and they are not a language-model score.
+
+CI runs the small seed only (48 customers, seed 42, one of each planted anomaly, plus the healthy controls): precision **1.0**, recall **1.0**, 23 findings, 23 labelled anomalies. That check is `tests/test_detectors.py`. The default seed is the one to quote: 500 customers, 6 months, seed 42, 92 planted anomalies. `billpilot assurance score --ground-truth data/ground_truth.json` on that database measured precision **0.9583** (92 of 96 findings matched) and recall **1.0** (92 of 92 labelled anomalies). Four findings are false positives. `barred_after_paying` and `payment_not_ending_treatment` each flagged `CUST-000105` and `CUST-000109`, and neither account is a planted example of those anomalies. Nothing planted was missed. The SQL was not changed to drop those four rows. `usage_without_charge` is a real check and finds no row on this generator, so it has no labelled rows and no findings. Scoring the loaded 500-customer database is a separate command. CI does not load that seed.
+
+| Detector | Anomaly type | Labelled | Findings | True positives | False positives | Missed | Precision | Recall |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `duplicate_charge` | `double_charge` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `roaming_spike` | `roaming_spike` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `sim_swap_premium` | `sim_swap` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `unbilled_usage` | `unbilled_usage` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `usage_without_charge` | `usage_without_charge` | 0 | 0 | 0 | 0 | 0 | — | — |
+| `duplicate_usage` | `duplicate_usage` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `tariff_mismatch` | `wrong_rate` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `missed_discount` | `missed_discount` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `charge_after_cancel` | `charge_after_cancellation` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `vas_not_opted_in` | `vas_not_opted_in` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `payment_not_recorded` | `payment_not_recorded` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `payment_not_posted` | `payment_not_posted` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `barred_after_paying` | `barred_after_paying` | 3 | 5 | 3 | 2 | 0 | 0.6 | 1.0 |
+| `treated_during_dispute` | `treated_during_open_dispute` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `payment_not_ending_treatment` | `payment_not_ending_treatment` | 3 | 5 | 3 | 2 | 0 | 0.6 | 1.0 |
+| `promise_ignored` | `promise_to_pay_ignored` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `exempt_treated` | `exempt_account_treated` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `addon_never_activated` | `addon_never_activated` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `allowance_not_reset` | `allowance_not_reset` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `packs_double_counted` | `overlapping_packs_double_counted` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `packs_dropped` | `overlapping_packs_dropped` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `promo_ended_early` | `promo_ended_early` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `entitlement_without_charge` | `feature_active_after_cancellation` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `overage_on_covered` | `overage_on_covered_usage` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+
+Ops can open a case or, when the evidence has a positive pre-tax amount, propose a credit. The credit stays `pending_approval`. The ops actor that proposed it cannot approve it. A session signed in as `meera.kapoor` is actor `user:meera.kapoor`, so that same sign-in cannot approve the credit either.
+
+`POST /agent/troubleshoot` is CSR-only. The CSR pastes an error or a symptom. The agent returns numbered steps with a runbook citation, reads the account with the existing tools, and lists related incidents. The fake model covers this in CI. No hosted-model eval score is claimed for it.
+
+```bash
+billpilot faults simulate
+billpilot consume
+billpilot reports generate
+billpilot assurance run
+billpilot assurance score --ground-truth data/ground_truth.json
+```
 
 ## Decisions
 
-Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the treatment read, and the fraud-flag read. Phase 3 notes cover the React UI, Render and Neon, per-step Langfuse traces (which replace the old on/off hook), and the credit approval queue. Sign-in notes cover the session cookie, the hand-built shell, and the demo users.
+Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the treatment read, and the fraud-flag read. Phase 3 notes cover the React UI, Render and Neon, per-step Langfuse traces (which replace the old on/off hook), and the credit approval queue. Sign-in notes cover the session cookie ([0024](docs/decisions/0024-signed-session-cookie.md)), the hand-built shell ([0025](docs/decisions/0025-enterprise-shell.md)), and the demo users ([0026](docs/decisions/0026-demo-users.md)). Phase 4 notes cover the two event backends ([0027](docs/decisions/0027-event-backends.md)), the failure store ([0028](docs/decisions/0028-failure-store.md)), SQL reports ([0029](docs/decisions/0029-sql-reports.md)), the rule detectors ([0030](docs/decisions/0030-rule-detectors.md)), and CSR troubleshooting ([0031](docs/decisions/0031-csr-troubleshooting.md)).
 
 Ops still approves a credit on the existing endpoint. That audit row is where the approver, amount, and timestamp are recorded. The copilot's own audit row records the proposal (`decision=propose`), not an approver, because the copilot is never the approver.
 
@@ -350,7 +417,7 @@ The deck's later phases were reordered. This is the plan the repo follows now.
 | 1 | Postgres ledger, synthetic generator, TMF-shaped mock APIs, approval queue, audit log, Docker Compose, CI | Done, on `main` |
 | 2 | Tool-calling copilot, RAG with citations, guardrails, propose-not-apply, eval harness | Done, on `main` |
 | 3 | UI (customer portal, CSR console, ops control tower), sign-in and role scope, free-tier deploy, Langfuse tracing | Done, on `main` |
-| 4 | Ops layer: Kafka or Redpanda, failure dashboard, daily and monthly reports, CSR troubleshooting AI (paste an error, get numbered steps) | Not started. `NullPublisher` is the stand-in. Topics already named: `usage.rated`, `bill.run`, `payment.events`, `treatment.actions`, `entitlement.changes`, `system.errors` |
+| 4 | Ops layer: Redpanda or a Postgres outbox, failure dashboard, SQL reports, fraud and revenue checks, CSR troubleshooting | This branch |
 | 5 | Onboarding and migration: one API call, bulk dry run, reconciliation, idempotent re-runs, rollback | Not started |
 | 6 | Integration and launch | Not started |
 

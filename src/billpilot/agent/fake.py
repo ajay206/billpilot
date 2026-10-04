@@ -74,6 +74,8 @@ class FakeChatModel:
 
 def classify(text: str) -> str:
     lowered = text.lower()
+    if lowered.startswith("troubleshooting:"):
+        return "troubleshoot"
     if "runbook" in lowered or "numbered steps" in lowered or lowered.startswith("policy question"):
         return "policy"
     if any(word in lowered for word in ("treatment status", "barred", "collections", "dunning", "soft bar")):
@@ -91,12 +93,47 @@ def classify(text: str) -> str:
     return "policy"
 
 
+def _symptom(user: str) -> str:
+    lowered = user.lower()
+    if "unbar" in lowered:
+        return "unbar"
+    if "roaming not working" in lowered or "roaming is not working" in lowered:
+        return "roaming"
+    if "bill not generated" in lowered or "bill was not generated" in lowered:
+        return "bill"
+    if "entitlement missing" in lowered or "entitlement is missing" in lowered:
+        return "entitlement"
+    return "payment"
+
+
+def _trouble_plan(user: str) -> list[str]:
+    extras = {
+        "unbar": ["get_treatment", "list_payments"],
+        "roaming": ["list_products", "list_balances"],
+        "bill": ["list_bills"],
+        "entitlement": ["list_products", "list_balances"],
+        "payment": ["list_payments", "list_payment_attempts"],
+    }[_symptom(user)]
+    return ["search_knowledge", *extras, "list_incidents"]
+
+
+def _trouble_query(user: str) -> str:
+    return {
+        "unbar": "Unbar not applied runbook numbered steps",
+        "roaming": "Roaming not working runbook numbered steps",
+        "bill": "Bill not generated runbook numbered steps",
+        "entitlement": "Entitlement missing runbook numbered steps",
+        "payment": "Failed payment PAYMENT_DECLINED runbook numbered steps",
+    }[_symptom(user)]
+
+
 def _next(intent, user, available, messages, payloads):
     called = {name for name, _payload in payloads}
     account = _account_id(messages)
     lines = _as_list(_latest(payloads, "list_bill_lines"))
     bills = _as_list(_latest(payloads, "list_bills"))
-    for name in _PLANS[intent]:
+    plan = _trouble_plan(user) if intent == "troubleshoot" else _PLANS[intent]
+    for name in plan:
         if name not in available or name in called:
             continue
         if name == "propose_adjustment" and (_duplicate(lines) is None or _credit_blocked(user, payloads)):
@@ -119,7 +156,9 @@ def _arguments(name: str, intent: str, user: str, account: str | None, payloads)
         return {**account_args, "bill_id": bill_id}
     if name == "list_products":
         product_type = "subscription"
-        if intent == "entitlement":
+        if intent == "troubleshoot":
+            product_type = "entitlement"
+        elif intent == "entitlement":
             product_type = (
                 "vas"
                 if any(word in user.lower() for word in ("vas", "opted", "value-added", "add-on"))
@@ -129,6 +168,8 @@ def _arguments(name: str, intent: str, user: str, account: str | None, payloads)
     if name == "get_offering":
         return {"offering_id": _offering_id(payloads)}
     if name == "search_knowledge":
+        if intent == "troubleshoot":
+            return {"query": _trouble_query(user)}
         return {"query": user if intent == "policy" else _QUERIES[intent]}
     if name == "create_dispute":
         args = {**account_args, "category": "billing", "description": user[:1800]}
@@ -149,6 +190,8 @@ def _arguments(name: str, intent: str, user: str, account: str | None, payloads)
 
 
 def _answer(intent: str, user: str, payloads) -> str:
+    if intent == "troubleshoot":
+        return _troubleshoot_answer(payloads)
     if intent == "policy":
         return _policy_answer(payloads)
     if intent == "explain":
@@ -162,6 +205,21 @@ def _answer(intent: str, user: str, payloads) -> str:
     if intent == "payment":
         return _payment_answer(payloads)
     return _policy_answer(payloads)
+
+
+def _troubleshoot_answer(payloads) -> str:
+    results = (_latest(payloads, "search_knowledge") or {}).get("results") or []
+    if not results:
+        return "I could not find a runbook for that symptom."
+    top = results[0]
+    steps = top["excerpt"].strip()
+    incidents = _as_list(_latest(payloads, "list_incidents"))
+    if incidents:
+        titles = ", ".join(str(row.get("title") or row.get("incidentType") or "incident") for row in incidents[:5])
+        related = f"Related incidents: {len(incidents)} ({titles})."
+    else:
+        related = "Related incidents: none on this account."
+    return f"{steps}\n{top['citation']}\n{related}"
 
 
 def _policy_answer(payloads) -> str:

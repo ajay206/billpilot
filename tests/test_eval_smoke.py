@@ -18,6 +18,12 @@ def test_fake_harness_writes_a_report_and_refuses_the_guardrail_cases(seeded, tm
     assert (tmp_path / "report.md").is_file()
     assert (tmp_path / "report.json").is_file()
     assert "Not a committed baseline" in (tmp_path / "report.md").read_text()
+    trouble = [row for row in payload["cases"] if row["id"].startswith("troubleshoot-")]
+    assert len(trouble) == 5
+    for row in trouble:
+        assert row["refusal_correct"] is True
+        assert row["tools_correct"] is True
+        assert row["citations_correct"] is True
     for row in payload["cases"]:
         assert "approve_adjustment" not in row["tools"]
         if row["category"] == "guardrail":

@@ -6,6 +6,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { Api } from "../api";
 import { App } from "../App";
 import { AnswerText, DataTable, Placeholder, ProposalCard, StatusBadge } from "../components";
+import { TroubleshootPanel } from "../features/csr/troubleshoot/TroubleshootPanel";
+import { FailureDashboard } from "../features/ops/failures/FailureDashboard";
+import { FindingsPanel } from "../features/ops/findings/FindingsPanel";
+import { ReportsPanel } from "../features/ops/reports/ReportsPanel";
 import { OpsDashboard } from "../views/OpsDashboard";
 
 function ok(body: unknown, total: string | null = null): Response {
@@ -117,8 +121,9 @@ describe("sign-in and role routing", () => {
     expect(screen.getByRole("button", { name: "Account 360" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Overview" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approval queue" })).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /csr troubleshooting ai, phase 4/i })).toBeInTheDocument();
-    expect(screen.getByText(/search for an account/i)).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /csr troubleshooting/i })).toBeInTheDocument();
+    expect(screen.getByText(/search for an account to run troubleshooting/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Payment declined" })).toBeInTheDocument();
   });
 
   it("refuses a customer who opens the ops path", async () => {
@@ -134,7 +139,7 @@ describe("sign-in and role routing", () => {
     expect(screen.queryByRole("button", { name: "Approval queue" })).not.toBeInTheDocument();
   });
 
-  it("opens the ops control tower and keeps phase 4 placeholders", async () => {
+  it("opens the ops control tower with the operations panels", async () => {
     const user = userEvent.setup();
     installFetch((url) => {
       if (url.endsWith("/auth/me")) return ok(session("ops", "Meera Kapoor"));
@@ -147,13 +152,27 @@ describe("sign-in and role routing", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Control tower" })).toBeInTheDocument();
     expect(screen.getByText(/no customer chat/i)).toBeInTheDocument();
-    expect(await screen.findByRole("region", { name: /failure dashboard, phase 4/i })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /reports, phase 4/i })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /failure dashboard/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Approval queue");
     expect(screen.queryByRole("button", { name: "Overview" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Failures" }));
+    expect(await screen.findByRole("heading", { name: "Failures" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Failures");
+    expect(screen.getByRole("region", { name: /failure dashboard/i })).toBeInTheDocument();
+    expect(screen.getByText(/no incidents yet/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reports" }));
+    expect(screen.getByRole("heading", { name: "Reports" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Reports");
+    expect(screen.getByText(/no report snapshots yet/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Findings" }));
+    expect(screen.getByRole("heading", { name: "Findings" })).toBeInTheDocument();
+    expect(screen.getByText(/no findings yet/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Approval queue" }));
     await user.click(screen.getByRole("tab", { name: "Unbars" }));
     expect(screen.getByText(/no unbar proposals/i)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Audit log" }));
     expect(screen.getByRole("heading", { name: "Audit log" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toHaveTextContent("Audit log");
   });
 
   it("says when a previous session has expired", async () => {
@@ -271,6 +290,68 @@ describe("shared controls", () => {
     expect(posts[0]?.path).toBe("/tmf-api/customerBillManagement/v4/billAdjustment/adj-9/approve");
     expect(posts[0]?.body).toMatchObject({ decision: "approve" });
     expect(await screen.findByText(/approved by ops/i)).toBeInTheDocument();
+  });
+
+  it("shows load errors without pretending the ledger is empty", async () => {
+    const api: Api = {
+      async get() {
+        throw new Error("The ledger did not respond.");
+      },
+      async post() {
+        throw new Error("The ledger did not respond.");
+      },
+    };
+    const { rerender } = render(<FindingsPanel api={api} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/ledger did not respond/i);
+    expect(screen.queryByText(/no findings yet/i)).not.toBeInTheDocument();
+    rerender(<ReportsPanel api={api} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/ledger did not respond/i);
+    expect(screen.queryByText(/no report snapshots yet/i)).not.toBeInTheDocument();
+    rerender(<FailureDashboard api={api} refreshMs={0} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent(/ledger did not respond/i);
+    expect(screen.queryByText(/no incidents yet/i)).not.toBeInTheDocument();
+  });
+
+  it("renders troubleshooting as steps, citations, and check summaries", async () => {
+    const user = userEvent.setup();
+    const api: Api = {
+      async get() {
+        throw new Error("unused");
+      },
+      async post<T>() {
+        return {
+          data: {
+            answer:
+              "Follow the failed payment runbook.\n1. Read payment attempts.\n2. Do not post a payment.\n[csr-runbooks.md § Failed payment]\nRelated incidents: none on this account.",
+            refusal: false,
+            toolCalls: [
+              { name: "search_knowledge", ok: true, summary: "Matched csr-runbooks.md · Failed payment." },
+              { name: "list_payments", ok: true, summary: "1 payment: ₹246.74 · done · 3 Oct 2026." },
+            ],
+            relatedIncidents: [
+              {
+                id: "inc-1",
+                title: "Payment failed",
+                incidentType: "failed_payment",
+                severity: "high",
+                status: "open",
+              },
+            ],
+          } as T,
+          total: null,
+        };
+      },
+    };
+    render(<TroubleshootPanel api={api} accountId="acc-1" />);
+    expect(screen.getByRole("button", { name: "Entitlement missing" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Run troubleshooting" }));
+    expect(await screen.findByText("Read payment attempts.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /csr-runbooks.md/i })).toBeInTheDocument();
+    expect(screen.getByText(/Matched csr-runbooks.md/)).toBeInTheDocument();
+    expect(screen.getByText(/₹246.74/)).toBeInTheDocument();
+    expect(screen.queryByText(/Related incidents: none/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Payment failed")).toBeInTheDocument();
+    expect(screen.queryByText(/account_id/)).not.toBeInTheDocument();
   });
 
   it("marks phase 4 panels as placeholders", () => {

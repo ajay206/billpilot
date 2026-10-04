@@ -19,7 +19,7 @@ def test_migration_creates_every_table(engine):
     assert len(TABLES) == 23
     with engine.connect() as connection:
         version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
-    assert version == "004_users"
+    assert version == "005_ops"
 
 
 def test_orm_columns_match_the_migration(engine):

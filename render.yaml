@@ -51,3 +51,16 @@ services:
         sync: false
       - key: LANGFUSE_HOST
         sync: false
+      # Render free has no broker. The same consumers read the Postgres outbox.
+      - key: EVENT_BACKEND
+        value: postgres
+      - key: EVENT_CONSUMER_ENABLED
+        value: "true"
+      - key: EVENT_POLL_SECONDS
+        value: "2"
+      - key: EVENT_MAX_RETRIES
+        value: "3"
+      - key: STUCK_BILL_RUN_SECONDS
+        value: "900"
+      - key: REPORT_SCHEDULE_SECONDS
+        value: "21600"

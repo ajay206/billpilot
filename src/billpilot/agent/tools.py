@@ -30,7 +30,9 @@ BALANCES = "/tmf-api/prepayBalanceManagement/v4/balance"
 ACCOUNTS = "/tmf-api/accountManagement/v4/billingAccount"
 FLAGS = "/tmf-api/accountManagement/v4/fraudFlag"
 AUDIT = "/ops/auditLog"
+INCIDENTS = "/ops/incidents"
 
+_CSR_OPS = frozenset({"csr", "ops"})
 _OBJECT = "object"
 _STRING = {"type": "string"}
 _READ_ROLES = frozenset({"customer", "csr", "ops"})
@@ -215,6 +217,12 @@ TOOLS: tuple[ToolSpec, ...] = (
         "Read the audit log. Ops only.",
         _schema({"account_id": _STRING}, []),
         _OPS_ONLY,
+    ),
+    ToolSpec(
+        "list_incidents",
+        "List operations incidents linked to the account: failed payments, stuck bill runs, mismatches.",
+        _ACCOUNT,
+        _CSR_OPS,
     ),
 )
 
@@ -494,6 +502,11 @@ class ToolExecutor:
             if account:
                 params["account.id"] = account
             return self._project(self.bss.request("GET", AUDIT, params=params), _identity)
+        if name == "list_incidents":
+            params = {"limit": 10}
+            if account:
+                params["accountId"] = account
+            return self._project(self.bss.request("GET", INCIDENTS, params=params), _identity)
         raise ValueError(f"Unknown tool {name}")
 
     def _project(self, response, projector):

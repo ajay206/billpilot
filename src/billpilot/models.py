@@ -373,6 +373,9 @@ class Incident(Base):
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     related_entity_type: Mapped[str | None] = mapped_column(String(40))
     related_entity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    source_event_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    evidence: Mapped[dict] = mapped_column(JSONB)
 
 
 class User(Base):
@@ -447,3 +450,90 @@ class AgentRun(Base):
     audit_log_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("audit_log.id"))
     # Langfuse trace id for this turn. Null when tracing is off.
     trace_id: Mapped[str | None] = mapped_column(String(64))
+
+
+class OutboxEvent(Base):
+    """One billing event. Postgres consumers read pending rows. Redpanda relays queued rows."""
+
+    __tablename__ = "outbox_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    topic: Mapped[str] = mapped_column(String(64))
+    event_type: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(16))
+    retry_count: Mapped[int] = mapped_column(Integer)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    idempotency_key: Mapped[str | None] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DeadLetter(Base):
+    __tablename__ = "dead_letter_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    outbox_event_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    topic: Mapped[str] = mapped_column(String(64))
+    event_type: Mapped[str] = mapped_column(String(64))
+    payload: Mapped[dict] = mapped_column(JSONB)
+    error: Mapped[str] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(16))
+    replay_event_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    replayed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class BillRun(Base):
+    __tablename__ = "bill_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    run_key: Mapped[str] = mapped_column(String(80))
+    account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    status: Mapped[str] = mapped_column(String(16))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
+    source_event_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
+class ConsumerCursor(Base):
+    __tablename__ = "consumer_cursors"
+
+    consumer_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    topic: Mapped[str] = mapped_column(String(64), primary_key=True)
+    committed_count: Mapped[int] = mapped_column(Integer)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class RaFinding(Base):
+    __tablename__ = "ra_findings"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    detector: Mapped[str] = mapped_column(String(64))
+    anomaly_type: Mapped[str] = mapped_column(String(64))
+    account_id: Mapped[uuid.UUID] = mapped_column(Uuid)
+    severity: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(24))
+    summary: Mapped[str] = mapped_column(Text)
+    evidence: Mapped[dict] = mapped_column(JSONB)
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ticket_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    adjustment_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+
+
+class ReportRun(Base):
+    __tablename__ = "report_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    report_key: Mapped[str] = mapped_column(String(40))
+    grain: Mapped[str] = mapped_column(String(16))
+    period_start: Mapped[date] = mapped_column(Date)
+    period_end: Mapped[date] = mapped_column(Date)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    generated_by: Mapped[str] = mapped_column(String(64))
+    row_count: Mapped[int] = mapped_column(Integer)
+    payload: Mapped[dict] = mapped_column(JSONB)

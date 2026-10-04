@@ -301,11 +301,14 @@ def create_dispute(
     request.app.state.publisher.publish(
         "treatment.actions",
         {
+            "eventType": "treatment.step",
             "action": "hold" if held else "dispute_opened",
             "accountId": str(account.id),
             "disputeId": str(dispute.id),
             "reason": "open_dispute",
+            "detail": "Dispute opened.",
         },
+        session=session,
     )
     session.commit()
     session.refresh(dispute)
@@ -390,6 +393,17 @@ def propose_adjustment(
             "status": "pending_approval",
             "invoiceId": invoice.id,
         },
+    )
+    request.app.state.publisher.publish(
+        "payment.events",
+        {
+            "eventType": "adjustment.proposed",
+            "accountId": str(account.id),
+            "adjustmentId": str(adjustment.id),
+            "amount": f"{body.amount.value:.2f}",
+            "detail": "A credit was proposed and is pending approval.",
+        },
+        session=session,
     )
     session.commit()
     session.refresh(adjustment)
@@ -498,13 +512,16 @@ def decide_adjustment(
     request.app.state.publisher.publish(
         "payment.events",
         {
+            "eventType": "adjustment.approved",
             "kind": "adjustment_applied",
             "adjustmentId": str(adjustment.id),
             "accountId": str(adjustment.account_id),
             "invoiceId": str(invoice.id),
             "amount": f"{adjustment.amount:.2f}",
             "currency": "INR",
+            "detail": "An approved adjustment was applied.",
         },
+        session=session,
     )
     session.commit()
     session.refresh(adjustment)
@@ -814,11 +831,14 @@ def create_ticket(
     request.app.state.publisher.publish(
         "treatment.actions",
         {
+            "eventType": "treatment.step",
             "action": "hold" if held else "ticket_opened",
             "accountId": str(account.id),
             "ticketId": str(ticket.id),
             "reason": "open_ticket",
+            "detail": "Trouble ticket opened.",
         },
+        session=session,
     )
     session.commit()
     session.refresh(ticket)
