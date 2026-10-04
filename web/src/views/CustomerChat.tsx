@@ -21,6 +21,8 @@ const PROMPTS = [
   "What are the roaming rules for charges outside the home network?",
   "Check my payments, including any failed autopay.",
   "How much allowance do I have left on this account?",
+  "What are the refund, deposit, and porting rules?",
+  "Did I opt into a value-added service, and what plan am I on?",
 ];
 
 export function CustomerChat({ api }: { api: Api }) {

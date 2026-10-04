@@ -6,6 +6,8 @@ The UI is a Vite app in `web/`, written in React and TypeScript. It builds to st
 
 The components (badge, table, drawer, proposal card) live in this repo. There is no component-kit dependency.
 
+Each view has its own path: `/customer`, `/csr`, and `/ops`. `/` is the customer view. The switcher updates the path, and the browser back button returns to the previous persona. The API serves `index.html` for those paths.
+
 ## Alternatives
 
 - Streamlit, which the architecture deck also named. A second Python process, a second port, and a look that is hard to put in a short demo video.

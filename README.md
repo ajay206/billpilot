@@ -63,9 +63,9 @@ Requirements: Docker, and for tests a local Python 3.12.
 docker compose up --build
 ```
 
-That starts Postgres, runs migrations, seeds 500 customers across 6 months, and serves the API and the persona UI from one process. Open <http://localhost:8000> for the UI and <http://localhost:8000/docs> for the API.
+That starts Postgres, runs migrations, seeds 500 customers across 6 months, and serves the API and the persona UI from one process. The three views are <http://localhost:8000/customer> (also <http://localhost:8000>), <http://localhost:8000/csr>, and <http://localhost:8000/ops>. The API reference is <http://localhost:8000/docs>.
 
-The header switches persona. Each button sends one of the demo keys below. With no model key, a banner says the copilot is in demo mode.
+The header switches persona and updates the path. Each button sends one of the demo keys below. With no model key, a banner says the copilot is in demo mode. A laptop with limited RAM should use the smaller seed in [How to test locally](docs/deploy.md#how-to-test-locally).
 
 ![Customer chat](docs/screenshots/customer.png)
 

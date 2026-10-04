@@ -36,13 +36,33 @@ describe("persona UI", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/demo mode/i);
     expect(screen.getByRole("heading", { name: "Ask about this bill" })).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: /ops/i }));
+    expect(window.location.pathname).toBe("/ops");
     expect(screen.getByRole("heading", { name: "Approvals, runs, and the audit log" })).toBeInTheDocument();
+    expect(screen.getByText(/no customer chat/i)).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /failure dashboard, phase 4/i })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: /reports, phase 4/i })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Unbars" }));
     expect(screen.getByText(/no unbar proposals/i)).toBeInTheDocument();
     await user.click(screen.getByRole("radio", { name: /csr/i }));
+    expect(window.location.pathname).toBe("/csr");
     expect(screen.getByRole("region", { name: /csr troubleshooting ai, phase 4/i })).toBeInTheDocument();
+  });
+
+  it("opens the ops view from /ops", async () => {
+    window.history.pushState({}, "", "/ops");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo) => {
+        const url = String(input);
+        if (url.endsWith("/health")) {
+          return ok({ status: "ok", demoMode: true, llmBackend: "fake", tracing: false });
+        }
+        return ok([], "0");
+      }),
+    );
+    render(<App />);
+    expect(await screen.findByRole("heading", { name: "Approvals, runs, and the audit log" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /ops/i })).toHaveAttribute("aria-checked", "true");
   });
 
   it("renders a citation as a button and a credit as pending approval", async () => {

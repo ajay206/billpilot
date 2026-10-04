@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { createApi } from "./api";
-import { personaById, PERSONAS } from "./personas";
+import { personaById, personaFromPath, PERSONAS, personaPath } from "./personas";
 import type { PersonaId } from "./personas";
 import type { Health } from "./types";
 import { CsrConsole } from "./views/CsrConsole";
@@ -9,9 +9,23 @@ import { CustomerChat } from "./views/CustomerChat";
 import { OpsDashboard } from "./views/OpsDashboard";
 
 export function App() {
-  const [persona, setPersona] = useState<PersonaId>("customer");
+  const [persona, setPersona] = useState<PersonaId>(() => personaFromPath(window.location.pathname));
   const [health, setHealth] = useState<Health | null>(null);
   const api = useMemo(() => createApi(personaById(persona).key), [persona]);
+
+  useEffect(() => {
+    const onPop = () => setPersona(personaFromPath(window.location.pathname));
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
+
+  function selectPersona(id: PersonaId) {
+    setPersona(id);
+    const path = personaPath(id);
+    if (window.location.pathname !== path) {
+      window.history.pushState({ persona: id }, "", path);
+    }
+  }
 
   useEffect(() => {
     let cancel = false;
@@ -48,7 +62,7 @@ export function App() {
               role="radio"
               aria-checked={persona === item.id}
               className={persona === item.id ? "persona selected" : "persona"}
-              onClick={() => setPersona(item.id)}
+              onClick={() => selectPersona(item.id)}
             >
               <strong>{item.label}</strong>
               <span>{item.scope}</span>

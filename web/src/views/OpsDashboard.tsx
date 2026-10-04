@@ -80,6 +80,7 @@ export function OpsDashboard({ api }: { api: Api }) {
         <div>
           <p className="eyebrow">Ops control tower</p>
           <h2>Approvals, runs, and the audit log</h2>
+          <p className="muted">Ops has no customer chat. This screen approves proposals and reads the log.</p>
         </div>
       </header>
       {error ? <p className="error">{error}</p> : null}
@@ -180,13 +181,18 @@ export function OpsDashboard({ api }: { api: Api }) {
             { key: "actor", label: "Actor", render: (row) => `${row.actorRole} · ${row.actorId}` },
             { key: "action", label: "Action", render: (row) => row.action },
             { key: "resource", label: "Resource", render: (row) => row.resourceType },
+            {
+              key: "request",
+              label: "Request",
+              render: (row) => <code title={row.requestId}>{row.requestId.slice(0, 8)}</code>,
+            },
           ]}
         />
       </section>
 
       <div className="placeholders">
         <Placeholder phase="Phase 4" title="Failure dashboard">
-          Live failures, stuck bill runs, and consumer lag. The event publisher is still a no-op, so this panel is a placeholder.
+          Live failures, stuck bill runs, consumer lag, and the fraud and revenue checks. The event publisher is still a no-op, so this panel is a placeholder.
         </Placeholder>
         <Placeholder phase="Phase 4" title="Reports">
           Daily and monthly billing, collections, dispute, and treatment reports are not generated yet.

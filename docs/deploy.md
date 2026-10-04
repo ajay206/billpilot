@@ -4,6 +4,114 @@ This is a portfolio deploy. The data is synthetic. You create the accounts and c
 
 The shape is one container (API and the built UI) plus a hosted Postgres that has pgvector. The choices and the reasons are in [0021](decisions/0021-render-and-neon.md).
 
+## How to test locally
+
+You can do this on a laptop before you create any host account. Docker is the only install. The copilot stays on the scripted model until you set a key, so this costs nothing.
+
+### A smaller ledger when RAM is tight
+
+`docker compose up` with no overrides seeds **500 customers and 6 months**. That is the design target. On a laptop with limited free memory, use the same smaller ledger the free host uses: 48 customers, 2 months, one of each planted fault. Postgres plus that seed fits a machine that would struggle with the full set.
+
+If a previous run already created the volume, remove it first. Otherwise the old 500-customer database is reused and the new counts are ignored.
+
+```bash
+docker compose down -v
+```
+
+Copy `.env.example` to `.env` and set these three lines. The anomaly JSON must name every fault type. `CUSTOMER_COUNT=48` is enough for one of each plus the healthy controls. It is not enough for the default counts, which need at least 112 customers.
+
+```bash
+CUSTOMER_COUNT=48
+MONTHS=2
+ANOMALY_COUNTS={"double_charge":1,"roaming_spike":1,"wrong_rate":1,"missed_discount":1,"charge_after_cancellation":1,"vas_not_opted_in":1,"payment_not_recorded":1,"payment_not_posted":1,"unbilled_usage":1,"duplicate_usage":1,"sim_swap":1,"barred_after_paying":1,"treated_during_open_dispute":1,"payment_not_ending_treatment":1,"promise_to_pay_ignored":1,"exempt_account_treated":1,"addon_never_activated":1,"allowance_not_reset":1,"overlapping_packs_double_counted":1,"overlapping_packs_dropped":1,"promo_ended_early":1,"feature_active_after_cancellation":1,"overage_on_covered_usage":1}
+```
+
+Leave `LLM_BACKEND=fake` and leave `LLM_API_KEY` empty.
+
+```bash
+docker compose up --build
+```
+
+Wait until the API log says it is listening, or until `curl -s http://localhost:8000/health` returns `"status":"ok"` and `"demoMode":true`. The first boot migrates and seeds. A later `docker compose up` skips the seed when `customers` already has rows.
+
+If the seed container is killed before it prints `Seeded`, the machine ran out of memory. Run `docker compose down -v` and use the 48-customer settings above. Do not raise `CUSTOMER_COUNT` on a 512 MB host. That limit is the Render free instance, not your laptop.
+
+### URLs and demo keys
+
+| View | URL | Key the switcher sends | Scope |
+| --- | --- | --- | --- |
+| Customer | http://localhost:8000/customer (also http://localhost:8000) | `dev-customer-key` | `CUST-000001` only |
+| CSR | http://localhost:8000/csr | `dev-csr-key` | Accounts assigned to `CSR-A`, including `CUST-000001` |
+| Ops | http://localhost:8000/ops | `dev-ops-key` | Every account, approvals, runs, audit. No customer chat |
+| Health | http://localhost:8000/health | none | `demoMode` and `tracing` |
+| API docs | http://localhost:8000/docs | none | OpenAPI |
+
+The keys are the published demo defaults. They are in the frontend bundle on purpose. Do not replace them with a key you care about.
+
+### Click-through
+
+The banner should say **Demo mode** before you start.
+
+**Customer** at http://localhost:8000/customer
+
+1. Confirm the rail shows `CUST-000001` and a latest bill.
+2. Click **Why is my bill higher this month? Explain it line by line.** Wait for the answer. It names the bill and the lines.
+3. Click a citation chip, such as `billing-policy.md` or `tariffs.md`. A drawer opens that policy section. Close it.
+4. Click **What are the roaming rules for charges outside the home network?** The answer cites `roaming.md`. Open that chip.
+5. Click **I think I was charged twice. Please open a dispute.** The rail shows the dispute with status `open`. A customer cannot apply a credit. The answer says a CSR has to propose one and ops has to approve it.
+6. Click **What are the refund, deposit, and porting rules?** and **Did I opt into a value-added service, and what plan am I on?** Each answer cites a policy section.
+
+**CSR** at http://localhost:8000/csr
+
+1. Search `CUST-000001` and select that account.
+2. Walk the tabs: Bills, Lines, Usage, Payments, Treatment, Tickets, Disputes. Disputes shows the dispute from the customer step, with status `open`.
+3. In the copilot box, ask: `Explain the latest bill line by line against the tariff.`
+4. Open the **tool calls** control under the answer. You should see the bill, the lines, and a policy search. Click a citation chip and read the section.
+5. The **CSR troubleshooting AI** panel says Phase 4. It does not take an error paste yet.
+
+`CUST-000001` is the healthy demo customer. The copilot proposes a credit only when it finds a duplicate line, and it will not auto-credit a roaming spike. On the 500-customer seed, search `CUST-000003` (even index, so CSR-A can see it) and ask: `I think this bill was charged twice. Propose a credit. Do not apply it.` The card says **Pending approval**. On the 48-customer seed the only double charge is `CUST-000002`, which belongs to CSR-B. To watch the copilot propose that one, set `CSR_CODE=CSR-B` in `.env`, run `docker compose up -d --force-recreate api`, and search `CUST-000002` with the same question. Set `CSR_CODE` back to `CSR-A` when you are done.
+
+To put a credit on the demo account without hunting for a planted fault, propose one with the CSR key. It stays `pending_approval`. Replace `ACCOUNT_ID` and `BILL_ID` with the ids from the CSR Bills tab (or from the customer bill API).
+
+```bash
+curl -s -X POST http://localhost:8000/tmf-api/customerBillManagement/v4/billAdjustment \
+  -H 'X-API-Key: dev-csr-key' -H 'Content-Type: application/json' \
+  -d '{"billingAccount":{"id":"ACCOUNT_ID"},"customerBill":{"id":"BILL_ID"},"adjustmentType":"credit","amount":{"unit":"INR","value":"10.00"},"reason":"Demo credit, still pending approval."}'
+```
+
+**Ops** at http://localhost:8000/ops
+
+1. Confirm the page says ops has no customer chat. The three counters are open disputes, pending approvals, and fraud flags.
+2. On **Credits**, the proposed credit shows the amount, the reason, and who proposed it. Click **Approve**. The notice names the approver (`ops`) and the status. The row leaves the pending list. Reload the customer view: the credit is no longer pending, and the line names who decided it.
+3. A second `POST` to `/tmf-api/customerBillManagement/v4/billAdjustment/{id}/approve` returns 409 and does not change the bill again. The UI shows that message when the endpoint returns 409.
+4. Open **Unbars** and **Plan changes**. Both say there is no proposal and no endpoint. Do not expect a button there.
+5. **Recent agent runs** lists the turns you just made, with decision, token total, estimated cost, latency, and trace id. The trace id is a dash until Langfuse keys are set.
+6. **Audit log** lists the chat turns and the approval. The request column is the first characters of the request id.
+7. **Failure dashboard** and **Reports** are marked Phase 4, including fraud and revenue checks.
+
+### Switch from the fake model to a real API key
+
+Still local. Put the key only in `.env`, which is gitignored.
+
+```bash
+LLM_BACKEND=api
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+LLM_API_KEY=sk-...
+```
+
+Any host that accepts `POST {LLM_BASE_URL}/chat/completions` works. Keep `EMBEDDING_BACKEND=hash` so you are not billed for vectors.
+
+Recreate the API so it reads the new values. The database volume stays.
+
+```bash
+docker compose up -d --build api
+```
+
+Reload http://localhost:8000/health. `demoMode` is false and `llmBackend` is `api`. The banner no longer says demo mode. Ask one customer question and stop. Each question spends tokens on your key.
+
+To go back, set `LLM_BACKEND=fake`, clear `LLM_API_KEY`, and run `docker compose up -d --build api` again. `demoMode` returns to true.
+
 ## What you create
 
 | Account | Plan | Pays for |

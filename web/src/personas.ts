@@ -10,3 +10,14 @@ export const PERSONAS: { id: PersonaId; label: string; key: string; scope: strin
 export function personaById(id: PersonaId) {
   return PERSONAS.find((persona) => persona.id === id) ?? PERSONAS[0];
 }
+
+export function personaPath(id: PersonaId): string {
+  return `/${id}`;
+}
+
+/** `/` is the customer view. `/csr` and `/ops` are the other two. */
+export function personaFromPath(path: string): PersonaId {
+  const head = path.split("/").filter(Boolean)[0];
+  if (head === "csr" || head === "ops") return head;
+  return "customer";
+}
