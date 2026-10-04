@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 
 import type { Api } from "../../../api";
-import { partyName } from "../../../format";
+import { DataTable, Metric, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
+import { age, partyName } from "../../../format";
 import type { Account } from "../../../types";
 
 type Incident = {
@@ -11,6 +12,9 @@ type Incident = {
   status: string;
   title: string;
   accountId: string | null;
+  holderName: string | null;
+  customerNumber: string | null;
+  detectedAt: string;
 };
 
 type StuckRun = {
@@ -18,7 +22,11 @@ type StuckRun = {
   runKey: string;
   status: string;
   accountId: string | null;
+  context: string | null;
+  holderName: string | null;
+  customerNumber: string | null;
   error: string | null;
+  startedAt: string;
 };
 
 type Letter = {
@@ -28,6 +36,7 @@ type Letter = {
   error: string;
   retryCount: number;
   status: string;
+  createdAt: string;
 };
 
 type LagTopic = { topic: string; lag: number; pending: number; queued: number; dead: number };
@@ -55,22 +64,44 @@ function asSnapshot(data: unknown): Snapshot {
   };
 }
 
-export function FailureDashboard({ api, refreshMs = 5000 }: { api: Api; refreshMs?: number }) {
+function label(value: string): string {
+  return value.replaceAll("_", " ");
+}
+
+export function FailureDashboard({
+  api,
+  refreshMs = 5000,
+  onOpenAccount,
+}: {
+  api: Api;
+  refreshMs?: number;
+  onOpenAccount?: (account: Account) => void;
+}) {
   const [snapshot, setSnapshot] = useState<Snapshot>(EMPTY);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [account, setAccount] = useState<Account | null>(null);
 
   async function load() {
     const result = await api.get<unknown>("/ops/failures");
     setSnapshot(asSnapshot(result.data));
+    setLoaded(true);
   }
 
   useEffect(() => {
     let cancel = false;
     load()
+      .then(() => {
+        if (!cancel) setLoaded(true);
+      })
       .catch((reason: Error) => {
         if (!cancel) setError(reason.message);
+      })
+      .finally(() => {
+        if (!cancel) setLoading(false);
       });
     if (refreshMs <= 0) {
       return () => {
@@ -94,6 +125,7 @@ export function FailureDashboard({ api, refreshMs = 5000 }: { api: Api; refreshM
     try {
       await api.post("/ops/faults/simulate", {});
       await load();
+      setNotice("Synthetic failures were published and consumed.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Simulate failed.");
     } finally {
@@ -101,12 +133,17 @@ export function FailureDashboard({ api, refreshMs = 5000 }: { api: Api; refreshM
     }
   }
 
-  async function replay(id: string) {
+  async function replay(letter: Letter) {
     setBusy(true);
     setError(null);
     try {
-      await api.post(`/ops/deadLetters/${id}/replay`, {});
+      const result = await api.post<{ duplicate: boolean }>(`/ops/deadLetters/${letter.id}/replay`, {});
       await load();
+      setNotice(
+        result.data.duplicate
+          ? `${letter.topic} was already replayed. A second replay does not apply it again.`
+          : `Replayed ${letter.eventType} on ${letter.topic}.`,
+      );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Replay failed.");
     } finally {
@@ -119,97 +156,136 @@ export function FailureDashboard({ api, refreshMs = 5000 }: { api: Api; refreshM
     try {
       const result = await api.get<Account>(`/tmf-api/accountManagement/v4/billingAccount/${accountId}`);
       setAccount(result.data);
+      onOpenAccount?.(result.data);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Account lookup failed.");
     }
   }
 
+  const openIncidents = snapshot.incidents.filter((row) => row.status === "open");
+  const severityCount = (name: string) => openIncidents.filter((row) => row.severity === name).length;
+  const openLetters = snapshot.deadLetters.filter((row) => row.status !== "replayed").length;
+  const maxLag = snapshot.lag.topics.reduce((max, topic) => Math.max(max, topic.lag), 0);
+
   return (
-    <section className="phase4-panel" aria-label="Failure dashboard">
-      <div className="phase4-head">
+    <section className="panel" aria-label="Failure dashboard">
+      <header className="panel-head">
         <div>
-          <h3>Failure dashboard</h3>
-          <p className="phase4-meta">
-            Incidents, stuck bill runs, the dead-letter queue, and consumer lag
+          <p className="eyebrow">Operations</p>
+          <h1>Failures</h1>
+          <p className="muted">
+            Open incidents, stuck bill runs, and the dead-letter queue
             {snapshot.backend ? ` · ${snapshot.backend}` : ""}.
           </p>
         </div>
         <button className="primary" type="button" onClick={simulate} disabled={busy}>
-          Simulate failures
+          {busy ? "Working…" : "Simulate failures"}
         </button>
-      </div>
-      {error ? <p className="error">{error}</p> : null}
-      <div className="phase4-grid">
-        <div className="phase4-block">
-          <h4>Incidents</h4>
-          {snapshot.incidents.length === 0 ? <p className="empty">No incidents yet.</p> : null}
-          <ul className="phase4-list">
-            {snapshot.incidents.slice(0, 8).map((incident) => (
-              <li key={incident.id}>
-                <strong className={`sev-${incident.severity}`}>{incident.severity}</strong> {incident.title}
-                <div className="phase4-meta">
-                  {incident.incidentType} · {incident.status}
-                </div>
-                {incident.accountId ? (
-                  <button className="text-button" type="button" onClick={() => openAccount(incident.accountId as string)}>
-                    Open account
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="phase4-block">
-          <h4>Stuck runs</h4>
-          {snapshot.stuckRuns.length === 0 ? <p className="empty">No stuck bill runs.</p> : null}
-          <ul className="phase4-list">
-            {snapshot.stuckRuns.map((run) => (
-              <li key={run.id}>
-                <strong>{run.runKey}</strong>
-                <div className="phase4-meta">{run.status}</div>
-                {run.accountId ? (
-                  <button className="text-button" type="button" onClick={() => openAccount(run.accountId as string)}>
-                    Open account
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="phase4-block">
-          <h4>Dead letters</h4>
-          {snapshot.deadLetters.length === 0 ? <p className="empty">The dead-letter queue is empty.</p> : null}
-          <ul className="phase4-list">
-            {snapshot.deadLetters.map((letter) => (
-              <li key={letter.id}>
-                <strong>{letter.eventType}</strong>
-                <div className="phase4-meta">
-                  {letter.topic} · retries {letter.retryCount} · {letter.status}
-                </div>
-                <button className="ghost" type="button" onClick={() => replay(letter.id)} disabled={busy}>
-                  Replay
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <div className="phase4-block">
-          <h4>Consumer lag</h4>
-          {snapshot.lag.topics.length === 0 ? <p className="empty">No lag snapshot yet.</p> : null}
-          <ul className="phase4-list">
-            {snapshot.lag.topics.map((topic) => (
-              <li key={topic.topic}>
-                <strong>{topic.topic}</strong>
-                <div className="phase4-meta">lag {topic.lag}</div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-      {account ? (
-        <p className="phase4-note">
-          Account {account.customerNumber} · {partyName(account.relatedParty)} · {account.state}
+      </header>
+      {error ? (
+        <p className="error" role="alert">
+          {error}
         </p>
+      ) : null}
+      {notice ? (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      ) : null}
+      {loading ? <Skeleton rows={4} label="Loading failures" /> : null}
+      {!loading && loaded ? (
+        <>
+          <div className="metrics">
+            <Metric label="Open critical" value={severityCount("critical")} hint="Severity critical" />
+            <Metric label="Open high" value={severityCount("high")} hint="Severity high" />
+            <Metric label="Open medium" value={severityCount("medium")} hint="Severity medium" />
+            <Metric label="Open low" value={severityCount("low")} hint="Severity low" />
+            <Metric label="Dead letters" value={openLetters} hint="Waiting for replay" />
+            <Metric label="Max lag" value={maxLag} hint="Highest topic lag" />
+          </div>
+          <h2>Incidents</h2>
+          <DataTable
+            label="Incidents"
+            rows={snapshot.incidents}
+            empty="No incidents yet. Simulate failures to publish a synthetic batch."
+            columns={[
+              { key: "severity", label: "Severity", render: (row) => <SeverityBadge severity={row.severity} />, value: (row) => row.severity },
+              { key: "type", label: "Type", render: (row) => label(row.incidentType), value: (row) => row.incidentType },
+              {
+                key: "account",
+                label: "Account",
+                render: (row) =>
+                  row.accountId ? (
+                    <button type="button" className="text-button account-link" onClick={() => void openAccount(row.accountId as string)}>
+                      <span>{row.holderName || "Open account"}</span>
+                      <span className="muted">{row.customerNumber}</span>
+                    </button>
+                  ) : (
+                    <span className="muted">No account</span>
+                  ),
+                value: (row) => row.holderName || "",
+              },
+              { key: "age", label: "Age", render: (row) => age(row.detectedAt), value: (row) => row.detectedAt },
+              { key: "status", label: "Status", render: (row) => <StatusBadge status={row.status} />, value: (row) => row.status },
+            ]}
+          />
+          <h2>Stuck bill runs</h2>
+          <DataTable
+            label="Stuck bill runs"
+            rows={snapshot.stuckRuns}
+            empty="No stuck bill runs."
+            columns={[
+              {
+                key: "context",
+                label: "Bill cycle",
+                render: (row) => row.context || "No billing account on this run",
+                value: (row) => row.context || row.runKey,
+              },
+              { key: "age", label: "Age", render: (row) => age(row.startedAt), value: (row) => row.startedAt },
+              { key: "status", label: "Status", render: (row) => <StatusBadge status={row.status} />, value: (row) => row.status },
+              {
+                key: "account",
+                label: "Account",
+                render: (row) =>
+                  row.accountId ? (
+                    <button type="button" className="text-button" onClick={() => void openAccount(row.accountId as string)}>
+                      Open account
+                    </button>
+                  ) : (
+                    <span className="muted">No account to open</span>
+                  ),
+                value: (row) => row.customerNumber || "",
+              },
+            ]}
+          />
+          <h2>Dead letters</h2>
+          <DataTable
+            label="Dead letters"
+            rows={snapshot.deadLetters}
+            empty="The dead-letter queue is empty."
+            columns={[
+              { key: "topic", label: "Topic", render: (row) => row.topic, value: (row) => row.topic },
+              { key: "error", label: "Error", render: (row) => row.error, value: (row) => row.error },
+              { key: "age", label: "Age", render: (row) => age(row.createdAt), value: (row) => row.createdAt },
+              { key: "status", label: "Status", render: (row) => <StatusBadge status={row.status} />, value: (row) => row.status },
+              {
+                key: "replay",
+                label: "Replay",
+                render: (row) => (
+                  <button className="primary" type="button" onClick={() => void replay(row)} disabled={busy}>
+                    {row.status === "replayed" ? "Replay again" : "Replay"}
+                  </button>
+                ),
+              },
+            ]}
+          />
+          {snapshot.lag.topics.length === 0 ? <p className="empty">No lag snapshot yet.</p> : null}
+          {account ? (
+            <p className="notice" role="status">
+              Account {account.customerNumber} · {partyName(account.relatedParty)} · {account.state}
+            </p>
+          ) : null}
+        </>
       ) : null}
     </section>
   );

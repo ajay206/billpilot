@@ -17,6 +17,11 @@ def test_ops_can_open_a_case_and_cannot_approve_its_own_credit(seeded):
         assert ran.status_code == 200
         rows = ran.json()["rows"]
         assert rows
+        billed = next(row for row in rows if row["evidence"].get("invoice_id"))
+        invoice = next(field for field in billed["evidenceFields"] if field["label"] == "Invoice")
+        assert invoice["value"] != billed["evidence"]["invoice_id"]
+        assert billed["holderName"]
+        assert billed["customerNumber"].startswith("CUST-")
         credited = next(row for row in rows if row["evidence"].get("pre_tax_amount"))
         opened = client.post(f"/ops/findings/{credited['id']}/case", headers=ops)
         assert opened.status_code == 200
@@ -61,6 +66,13 @@ def test_csr_troubleshoot_returns_numbered_steps(seeded):
         assert "search_knowledge" in names
         assert "list_incidents" in names
         assert "propose_adjustment" not in names
+        knowledge = next(call for call in body["toolCalls"] if call["name"] == "search_knowledge")
+        assert "csr-runbooks.md" in knowledge["summary"]
+        assert "Failed payment" in knowledge["summary"]
+        assert not knowledge["summary"].lstrip().startswith("{")
+        for call in body["toolCalls"]:
+            assert "summary" in call
+            assert not str(call["summary"]).lstrip().startswith("[")
 
 
 def test_session_csr_troubleshoot_stays_on_assigned_accounts(seeded):

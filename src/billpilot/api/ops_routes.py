@@ -18,7 +18,18 @@ from billpilot.api.access import require_account, scope_accounts
 from billpilot.api.audit import append_audit, write_audit
 from billpilot.api.security import Principal, require_roles
 from billpilot.db import get_session
-from billpilot.models import BillRun, DeadLetter, Incident, RaFinding, ReportRun
+from billpilot.models import (
+    Account,
+    Adjustment,
+    BillRun,
+    Customer,
+    DeadLetter,
+    Incident,
+    Invoice,
+    RaFinding,
+    ReportRun,
+    Ticket,
+)
 from billpilot.ops.actions import open_case, propose_adjustment
 from billpilot.ops.detectors import DETECTORS, detect, persist_findings
 from billpilot.ops.pipeline import lag_snapshot, replay_dead_letter
@@ -41,7 +52,100 @@ class ReportBody(BaseModel):
     periodEnd: date | None = None
 
 
-def _incident(row: Incident) -> dict:
+def _load_accounts(session: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, dict]:
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(Account, Customer).join(Customer, Account.customer_id == Customer.id).where(Account.id.in_(ids))
+    ).all()
+    found: dict[uuid.UUID, dict] = {}
+    for account, customer in rows:
+        found[account.id] = {
+            "accountId": str(account.id),
+            "customerNumber": customer.customer_number,
+            "holderName": f"{customer.given_name} {customer.family_name}".strip(),
+            "accountNumber": account.account_number,
+            "billingCycleDay": account.billing_cycle_day,
+        }
+    return found
+
+
+def _load_bills(session: Session, ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    if not ids:
+        return {}
+    rows = session.scalars(select(Invoice).where(Invoice.id.in_(ids))).all()
+    return {row.id: row.bill_number for row in rows}
+
+
+def _uuid_or_none(value: object) -> uuid.UUID | None:
+    if not value:
+        return None
+    try:
+        return uuid.UUID(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+_MONEY_KEYS = frozenset(
+    {
+        "pre_tax_amount",
+        "amount",
+        "subtotal",
+        "rated_amount",
+        "total",
+        "tax",
+        "amount_due",
+    }
+)
+_SKIP_KEYS = frozenset({"account_id", "accountId"})
+
+
+def _field_label(key: str) -> str:
+    special = {
+        "pre_tax_amount": "Pre-tax amount",
+        "rated_amount": "Rated amount",
+        "invoice_id": "Invoice",
+        "valid_from": "Valid from",
+        "valid_to": "Valid to",
+    }
+    if key in special:
+        return special[key]
+    return key.replace("_", " ").capitalize()
+
+
+def _evidence_fields(evidence: dict, bills: dict[uuid.UUID, str]) -> list[dict]:
+    fields: list[dict] = []
+    for key, value in evidence.items():
+        if value is None or value == "" or key in _SKIP_KEYS:
+            continue
+        if key in {"invoice_id", "invoiceId"}:
+            invoice_id = _uuid_or_none(value)
+            number = bills.get(invoice_id) if invoice_id else None
+            fields.append({"label": "Invoice", "value": number or "Invoice not on file", "kind": "text"})
+            continue
+        if key.endswith("_id") or key.endswith("Id"):
+            continue
+        kind = "text"
+        if key in _MONEY_KEYS or key.endswith("_amount"):
+            kind = "money"
+        elif key.endswith("_at") or key.endswith("_date") or key in {"valid_from", "valid_to"}:
+            kind = "date"
+        fields.append({"label": _field_label(key), "value": value, "kind": kind})
+    return fields
+
+
+def _account_bits(account: dict | None) -> dict:
+    if account is None:
+        return {"holderName": None, "customerNumber": None, "accountNumber": None, "billingCycleDay": None}
+    return {
+        "holderName": account["holderName"],
+        "customerNumber": account["customerNumber"],
+        "accountNumber": account["accountNumber"],
+        "billingCycleDay": account["billingCycleDay"],
+    }
+
+
+def _incident(row: Incident, account: dict | None = None) -> dict:
     return {
         "id": str(row.id),
         "incidentType": row.incident_type,
@@ -51,14 +155,22 @@ def _incident(row: Incident) -> dict:
         "description": row.description,
         "detectedAt": row.detected_at.isoformat(),
         "accountId": None if row.account_id is None else str(row.account_id),
+        **_account_bits(account),
         "relatedEntityType": row.related_entity_type,
         "relatedEntityId": None if row.related_entity_id is None else str(row.related_entity_id),
         "evidence": row.evidence or {},
     }
 
 
-def _finding(row: RaFinding) -> dict:
+def _finding(
+    row: RaFinding,
+    account: dict | None = None,
+    bills: dict[uuid.UUID, str] | None = None,
+    ticket: Ticket | None = None,
+    adjustment: Adjustment | None = None,
+) -> dict:
     spec = _NAMES.get((row.detector, row.anomaly_type), {})
+    evidence = row.evidence or {}
     return {
         "id": str(row.id),
         "detector": row.detector,
@@ -68,12 +180,48 @@ def _finding(row: RaFinding) -> dict:
         "severity": row.severity,
         "status": row.status,
         "summary": row.summary,
-        "evidence": row.evidence or {},
+        "evidence": evidence,
+        "evidenceFields": _evidence_fields(evidence, bills or {}),
         "accountId": str(row.account_id),
+        **_account_bits(account),
         "detectedAt": row.detected_at.isoformat(),
         "ticketId": None if row.ticket_id is None else str(row.ticket_id),
+        "ticketNumber": None if ticket is None else ticket.ticket_number,
+        "ticketStatus": None if ticket is None else ticket.status,
         "adjustmentId": None if row.adjustment_id is None else str(row.adjustment_id),
+        "adjustmentStatus": None if adjustment is None else adjustment.status,
+        "adjustmentAmount": None if adjustment is None else f"{adjustment.amount:.2f}",
     }
+
+
+def _present_findings(session: Session, rows: list[RaFinding]) -> list[dict]:
+    accounts = _load_accounts(session, {row.account_id for row in rows})
+    invoice_ids: set[uuid.UUID] = set()
+    for row in rows:
+        parsed = _uuid_or_none((row.evidence or {}).get("invoice_id"))
+        if parsed is not None:
+            invoice_ids.add(parsed)
+    bills = _load_bills(session, invoice_ids)
+    ticket_ids = {row.ticket_id for row in rows if row.ticket_id is not None}
+    tickets = {}
+    if ticket_ids:
+        tickets = {row.id: row for row in session.scalars(select(Ticket).where(Ticket.id.in_(ticket_ids))).all()}
+    adjustment_ids = {row.adjustment_id for row in rows if row.adjustment_id is not None}
+    adjustments = {}
+    if adjustment_ids:
+        adjustments = {
+            row.id: row for row in session.scalars(select(Adjustment).where(Adjustment.id.in_(adjustment_ids))).all()
+        }
+    return [
+        _finding(
+            row,
+            accounts.get(row.account_id),
+            bills,
+            tickets.get(row.ticket_id) if row.ticket_id else None,
+            adjustments.get(row.adjustment_id) if row.adjustment_id else None,
+        )
+        for row in rows
+    ]
 
 
 def _report(row: ReportRun) -> dict:
@@ -90,11 +238,16 @@ def _report(row: ReportRun) -> dict:
     }
 
 
-def _run(row: BillRun) -> dict:
+def _run(row: BillRun, account: dict | None = None) -> dict:
+    context = None
+    if account is not None:
+        context = f"Cycle day {account['billingCycleDay']} · {account['holderName']} · {account['customerNumber']}"
     return {
         "id": str(row.id),
         "runKey": row.run_key,
         "accountId": None if row.account_id is None else str(row.account_id),
+        "context": context,
+        **_account_bits(account),
         "status": row.status,
         "startedAt": row.started_at.isoformat(),
         "finishedAt": None if row.finished_at is None else row.finished_at.isoformat(),
@@ -127,11 +280,14 @@ def failure_snapshot(
     incidents = session.scalars(select(Incident).order_by(Incident.detected_at.desc()).limit(80)).all()
     stuck = session.scalars(select(BillRun).where(BillRun.status == "stuck").order_by(BillRun.started_at.desc())).all()
     letters = session.scalars(select(DeadLetter).order_by(DeadLetter.created_at.desc()).limit(40)).all()
+    account_ids = {row.account_id for row in incidents if row.account_id is not None}
+    account_ids.update(row.account_id for row in stuck if row.account_id is not None)
+    accounts = _load_accounts(session, account_ids)
     transport = getattr(request.app.state.publisher, "transport", None)
     return {
         "backend": request.app.state.settings.event_backend,
-        "incidents": [_incident(row) for row in incidents],
-        "stuckRuns": [_run(row) for row in stuck],
+        "incidents": [_incident(row, accounts.get(row.account_id)) for row in incidents],
+        "stuckRuns": [_run(row, accounts.get(row.account_id)) for row in stuck],
         "deadLetters": [_letter(row) for row in letters],
         "lag": lag_snapshot(session, request.app.state.settings, transport),
     }
@@ -312,7 +468,7 @@ def run_assurance(
         payload={"findings": len(stored)},
     )
     session.commit()
-    return {"findings": len(stored), "rows": [_finding(row) for row in stored]}
+    return {"findings": len(stored), "rows": _present_findings(session, stored)}
 
 
 @router.get("/ops/findings", tags=["Operations"])
@@ -326,7 +482,7 @@ def list_findings(
     if account_id is not None:
         stmt = stmt.where(RaFinding.account_id == account_id)
     rows = session.scalars(stmt.order_by(RaFinding.detected_at.desc()).limit(200)).all()
-    return [_finding(row) for row in rows]
+    return _present_findings(session, rows)
 
 
 @router.post("/ops/findings/{finding_id}/case", tags=["Operations"])
@@ -346,7 +502,7 @@ def finding_case(
         "ticketId": str(ticket.id),
         "ticketNumber": ticket.ticket_number,
         "status": ticket.status,
-        "finding": _finding(finding),
+        "finding": _present_findings(session, [finding])[0],
     }
 
 
@@ -381,5 +537,5 @@ def finding_adjustment(
         "adjustmentId": str(adjustment.id),
         "status": adjustment.status,
         "amount": f"{adjustment.amount:.2f}",
-        "finding": _finding(finding),
+        "finding": _present_findings(session, [finding])[0],
     }

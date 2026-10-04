@@ -62,10 +62,24 @@ export const NAV: Record<Role, { id: string; label: string }[]> = {
   csr: [{ id: "account", label: "Account 360" }],
   ops: [
     { id: "queue", label: "Approval queue" },
+    { id: "failures", label: "Failures" },
+    { id: "reports", label: "Reports" },
+    { id: "findings", label: "Findings" },
     { id: "runs", label: "Agent runs" },
     { id: "audit", label: "Audit log" },
   ],
 };
+
+export function opsSectionFromPath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  if (parts[0] !== "ops") return "queue";
+  const id = parts[1] ?? "queue";
+  return NAV.ops.some((item) => item.id === id) ? id : "queue";
+}
+
+export function opsPath(section: string): string {
+  return section === "queue" ? "/ops" : `/ops/${section}`;
+}
 
 export function defaultSection(role: Role): string {
   return NAV[role][0].id;

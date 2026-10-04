@@ -1,6 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { Api } from "../../../api";
+import { DataTable, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
+import { inr, when } from "../../../format";
+import type { Account } from "../../../types";
+
+type EvidenceField = { label: string; value: string | number; kind: string };
 
 type Finding = {
   id: string;
@@ -12,17 +17,42 @@ type Finding = {
   status: string;
   summary: string;
   accountId: string;
+  holderName: string | null;
+  customerNumber: string | null;
   evidence: Record<string, unknown>;
-  ticketId: string | null;
-  adjustmentId: string | null;
+  evidenceFields: EvidenceField[];
+  ticketNumber: string | null;
+  ticketStatus: string | null;
+  adjustmentStatus: string | null;
+  adjustmentAmount: string | null;
 };
 
+const FAMILIES: { id: string; label: string }[] = [
+  { id: "fraud", label: "Fraud" },
+  { id: "revenue", label: "Revenue" },
+  { id: "payments", label: "Payments" },
+  { id: "treatment", label: "Treatment" },
+  { id: "entitlement", label: "Entitlements" },
+];
+
+const SEVERITIES = ["critical", "high", "medium", "low"];
+
 function asFindings(data: unknown): Finding[] {
-  if (Array.isArray(data)) return data as Finding[];
-  if (data && typeof data === "object" && Array.isArray((data as { rows?: unknown }).rows)) {
-    return (data as { rows: Finding[] }).rows;
-  }
-  return [];
+  const rows = Array.isArray(data)
+    ? data
+    : data && typeof data === "object" && Array.isArray((data as { rows?: unknown }).rows)
+      ? (data as { rows: Finding[] }).rows
+      : [];
+  return rows.map((row) => ({
+    ...row,
+    evidenceFields: Array.isArray(row.evidenceFields) ? row.evidenceFields : [],
+    holderName: row.holderName ?? null,
+    customerNumber: row.customerNumber ?? null,
+    ticketNumber: row.ticketNumber ?? null,
+    ticketStatus: row.ticketStatus ?? null,
+    adjustmentStatus: row.adjustmentStatus ?? null,
+    adjustmentAmount: row.adjustmentAmount ?? null,
+  }));
 }
 
 function hasAmount(evidence: Record<string, unknown>): boolean {
@@ -32,116 +62,299 @@ function hasAmount(evidence: Record<string, unknown>): boolean {
   return Number.isFinite(amount) && amount > 0;
 }
 
-export function FindingsPanel({ api }: { api: Api }) {
+function fieldText(field: EvidenceField): string {
+  if (field.kind === "money") return inr(String(field.value));
+  if (field.kind === "date") return when(String(field.value));
+  return String(field.value);
+}
+
+function titleCase(value: string): string {
+  return value.replaceAll("_", " ");
+}
+
+function replaceFinding(current: Finding[], next: Finding): Finding[] {
+  const [normalized] = asFindings([next]);
+  if (!normalized) return current;
+  return current.map((row) => (row.id === normalized.id ? normalized : row));
+}
+
+export function FindingsPanel({
+  api,
+  onOpenAccount,
+}: {
+  api: Api;
+  onOpenAccount?: (account: Account) => void;
+}) {
   const [rows, setRows] = useState<Finding[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [family, setFamily] = useState("all");
+  const [severity, setSeverity] = useState("all");
+  const [detector, setDetector] = useState("all");
 
   async function load() {
     const result = await api.get<unknown>("/ops/findings");
     setRows(asFindings(result.data));
+    setLoaded(true);
   }
 
   useEffect(() => {
     let cancel = false;
-    load().catch((reason: Error) => {
-      if (!cancel) setError(reason.message);
-    });
+    load()
+      .then(() => {
+        if (!cancel) setLoaded(true);
+      })
+      .catch((reason: Error) => {
+        if (!cancel) setError(reason.message);
+      })
+      .finally(() => {
+        if (!cancel) setLoading(false);
+      });
     return () => {
       cancel = true;
     };
   }, [api]);
 
+  async function openAccount(accountId: string) {
+    setError(null);
+    try {
+      const result = await api.get<Account>(`/tmf-api/accountManagement/v4/billingAccount/${accountId}`);
+      onOpenAccount?.(result.data);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Account lookup failed.");
+    }
+  }
+
   async function run() {
-    setBusy(true);
+    setRunning(true);
     setError(null);
     try {
       const result = await api.post<unknown>("/ops/assurance/run", {});
       setRows(asFindings(result.data));
+      setLoaded(true);
+      setNotice("Checks finished. Figures come from the ledger, not from a model.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "The checks failed.");
     } finally {
-      setBusy(false);
+      setRunning(false);
     }
   }
 
   async function openCase(id: string) {
-    setBusy(true);
+    setBusyId(id);
     setError(null);
     try {
-      const result = await api.post<{ ticketNumber: string; duplicate: boolean }>(`/ops/findings/${id}/case`, {});
+      const result = await api.post<{ ticketNumber: string; duplicate: boolean; finding: Finding }>(
+        `/ops/findings/${id}/case`,
+        {},
+      );
+      setRows((current) => replaceFinding(current, result.data.finding));
       setNotice(
         result.data.duplicate
-          ? `Case ${result.data.ticketNumber} was already open.`
-          : `Opened case ${result.data.ticketNumber}. It does not move money.`,
+          ? `Case ${result.data.ticketNumber} is already open. No second ticket was created.`
+          : `Opened case ${result.data.ticketNumber}. The bill did not change.`,
       );
-      await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not open a case.");
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
   async function propose(id: string) {
-    setBusy(true);
+    setBusyId(id);
     setError(null);
     try {
-      const result = await api.post<{ status: string; amount: string; duplicate: boolean }>(
+      const result = await api.post<{ status: string; amount: string; duplicate: boolean; finding: Finding }>(
         `/ops/findings/${id}/adjustment`,
         {},
       );
+      setRows((current) => replaceFinding(current, result.data.finding));
       setNotice(
-        `Credit ${result.data.amount} is ${result.data.status}. A different approver has to decide. This ops key cannot approve its own proposal.`,
+        result.data.duplicate
+          ? `Credit ${inr(result.data.amount)} is already ${result.data.status.replaceAll("_", " ")}.`
+          : `Credit ${inr(result.data.amount)} is ${result.data.status.replaceAll("_", " ")}. You proposed it, so you cannot approve it.`,
       );
-      await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not propose a credit.");
     } finally {
-      setBusy(false);
+      setBusyId(null);
     }
   }
 
+  const familyCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of rows) counts.set(row.family, (counts.get(row.family) ?? 0) + 1);
+    return counts;
+  }, [rows]);
+
+  const visible = rows.filter((row) => {
+    if (family !== "all" && row.family !== family) return false;
+    if (severity !== "all" && row.severity !== severity) return false;
+    if (detector !== "all" && row.detector !== detector) return false;
+    return true;
+  });
+
+  const detectors = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of rows) {
+      if (family !== "all" && row.family !== family) continue;
+      counts.set(row.detector, (counts.get(row.detector) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((left, right) => left[0].localeCompare(right[0]));
+  }, [family, rows]);
+
   return (
-    <section className="phase4-panel" aria-label="Fraud and revenue findings">
-      <div className="phase4-head">
+    <section className="panel" aria-label="Fraud and revenue findings">
+      <header className="panel-head">
         <div>
-          <h3>Fraud and revenue findings</h3>
-          <p className="phase4-meta">Rule checks over the synthetic ledger. Each row keeps the evidence the query returned.</p>
+          <p className="eyebrow">Revenue assurance</p>
+          <h1>Findings</h1>
+          <p className="muted">Rule checks over the synthetic ledger. Evidence is the query row, not a model judgement.</p>
         </div>
-        <button className="primary" type="button" onClick={run} disabled={busy}>
-          Run checks
+        <button className="primary" type="button" onClick={run} disabled={running}>
+          {running ? "Running checks…" : "Run checks"}
         </button>
-      </div>
-      <p className="phase4-note">
-        Opening a case does not change a bill. A proposed credit stays pending until a different approver decides it.
-      </p>
-      {error ? <p className="error">{error}</p> : null}
-      {notice ? <p className="phase4-note">{notice}</p> : null}
-      {rows.length === 0 ? <p className="empty">No findings yet.</p> : null}
-      <ul className="phase4-list">
-        {rows.slice(0, 12).map((finding) => (
-          <li key={finding.id}>
-            <strong className={`sev-${finding.severity}`}>{finding.severity}</strong> {finding.name}
-            <div className="phase4-meta">
-              {finding.family} · {finding.anomalyType} · {finding.status}
-            </div>
-            <p>{finding.summary}</p>
-            <p className="phase4-meta">{JSON.stringify(finding.evidence)}</p>
-            <div className="phase4-actions">
-              <button className="ghost" type="button" onClick={() => openCase(finding.id)} disabled={busy}>
-                Open case
+      </header>
+      {error ? (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {notice ? (
+        <p className="notice" role="status">
+          {notice}
+        </p>
+      ) : null}
+      {loading ? <Skeleton rows={4} label="Loading findings" /> : null}
+      {!loading && loaded && rows.length === 0 ? (
+        <p className="empty">No findings yet. Run checks to score the synthetic ledger.</p>
+      ) : null}
+      {!loading && rows.length > 0 ? (
+        <>
+          <div className="tabs" role="tablist" aria-label="Finding category">
+            <button type="button" role="tab" aria-selected={family === "all"} className={family === "all" ? "tab selected" : "tab"} onClick={() => setFamily("all")}>
+              All {rows.length}
+            </button>
+            {FAMILIES.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={family === item.id}
+                className={family === item.id ? "tab selected" : "tab"}
+                onClick={() => {
+                  setFamily(item.id);
+                  setDetector("all");
+                }}
+              >
+                {item.label} {familyCounts.get(item.id) ?? 0}
               </button>
-              {hasAmount(finding.evidence) ? (
-                <button className="ghost" type="button" onClick={() => propose(finding.id)} disabled={busy}>
-                  Propose adjustment
-                </button>
-              ) : null}
-            </div>
-          </li>
-        ))}
-      </ul>
+            ))}
+          </div>
+          <div className="tabs" role="tablist" aria-label="Finding severity">
+            <button type="button" role="tab" aria-selected={severity === "all"} className={severity === "all" ? "tab selected" : "tab"} onClick={() => setSeverity("all")}>
+              Any severity
+            </button>
+            {SEVERITIES.map((item) => (
+              <button
+                key={item}
+                type="button"
+                role="tab"
+                aria-selected={severity === item}
+                className={severity === item ? "tab selected" : "tab"}
+                onClick={() => setSeverity(item)}
+              >
+                {item} {rows.filter((row) => row.severity === item && (family === "all" || row.family === family)).length}
+              </button>
+            ))}
+          </div>
+          <label className="field detector-field">
+            Detector
+            <select value={detector} onChange={(event) => setDetector(event.target.value)}>
+              <option value="all">All detectors ({rows.filter((row) => family === "all" || row.family === family).length})</option>
+              {detectors.map(([id, count]) => (
+                <option key={id} value={id}>
+                  {titleCase(id)} ({count})
+                </option>
+              ))}
+            </select>
+          </label>
+          <DataTable
+            label="Findings"
+            rows={visible}
+            empty="No findings match these filters."
+            pageSize={8}
+            columns={[
+              { key: "severity", label: "Severity", render: (row) => <SeverityBadge severity={row.severity} />, value: (row) => row.severity },
+              { key: "name", label: "Detector", render: (row) => row.name, value: (row) => row.name },
+              {
+                key: "account",
+                label: "Account",
+                render: (row) => (
+                  <button type="button" className="text-button account-link" onClick={() => void openAccount(row.accountId)}>
+                    <span>{row.holderName || "Open account"}</span>
+                    <span className="muted">{row.customerNumber}</span>
+                  </button>
+                ),
+                value: (row) => `${row.holderName ?? ""} ${row.customerNumber ?? ""}`,
+              },
+              {
+                key: "evidence",
+                label: "Evidence",
+                render: (row) =>
+                  row.evidenceFields.length === 0 ? (
+                    <span className="muted">No extra evidence.</span>
+                  ) : (
+                    <dl className="evidence-fields">
+                      {row.evidenceFields.map((field) => (
+                        <div key={field.label}>
+                          <dt>{field.label}</dt>
+                          <dd>{fieldText(field)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  ),
+                value: (row) => row.evidenceFields.map((field) => fieldText(field)).join(" "),
+              },
+              {
+                key: "state",
+                label: "State",
+                render: (row) => (
+                  <div className="row-actions">
+                    <StatusBadge status={row.status} />
+                    {row.ticketNumber ? (
+                      <p className="muted">
+                        Case {row.ticketNumber} · {row.ticketStatus}
+                      </p>
+                    ) : (
+                      <button className="primary" type="button" onClick={() => void openCase(row.id)} disabled={busyId === row.id}>
+                        {busyId === row.id ? "Opening…" : "Open case"}
+                      </button>
+                    )}
+                    {row.adjustmentStatus ? (
+                      <p>
+                        Credit {inr(row.adjustmentAmount)} · <StatusBadge status={row.adjustmentStatus} />
+                      </p>
+                    ) : hasAmount(row.evidence) ? (
+                      <button className="ghost" type="button" onClick={() => void propose(row.id)} disabled={busyId === row.id}>
+                        {busyId === row.id ? "Proposing…" : "Propose adjustment"}
+                      </button>
+                    ) : (
+                      <p className="muted">No credit amount on this finding, so an adjustment is not offered.</p>
+                    )}
+                  </div>
+                ),
+                value: (row) => row.status,
+              },
+            ]}
+          />
+        </>
+      ) : null}
     </section>
   );
 }

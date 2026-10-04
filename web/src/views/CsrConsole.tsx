@@ -20,7 +20,7 @@ import type {
   Usage,
 } from "../types";
 
-type Tab = "bills" | "lines" | "usage" | "payments" | "treatment" | "tickets" | "disputes";
+type Tab = "bills" | "lines" | "usage" | "payments" | "treatment" | "tickets" | "disputes" | "trouble";
 
 type Turn = {
   id: string;
@@ -39,6 +39,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "treatment", label: "Treatment" },
   { id: "tickets", label: "Tickets" },
   { id: "disputes", label: "Disputes" },
+  { id: "trouble", label: "Troubleshoot" },
 ];
 
 export function CsrConsole({ api, account }: { api: Api; account: Account | null }) {
@@ -326,9 +327,17 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 {disputes.length === 0 && adjustments.length === 0 ? <p className="empty">No disputes or credits.</p> : null}
               </div>
             ) : null}
+            {!loading && !loadError && tab === "trouble" ? (
+              <TroubleshootPanel
+                api={api}
+                accountId={account.id}
+                onCite={(doc, section) => setCitation({ doc, section })}
+              />
+            ) : null}
           </>
-        ) : null}
-        <TroubleshootPanel api={api} accountId={account?.id ?? null} />
+        ) : (
+          <TroubleshootPanel api={api} accountId={null} onCite={(doc, section) => setCitation({ doc, section })} />
+        )}
       </section>
       <section className="panel copilot" aria-label="CSR copilot">
         <p className="eyebrow">Copilot</p>

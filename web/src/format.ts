@@ -32,6 +32,18 @@ export function whenTime(iso: string | null | undefined): string {
   }).format(date);
 }
 
+export function age(iso: string | null | undefined, now = Date.now()): string {
+  if (!iso) return "—";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "—";
+  const minutes = Math.max(0, Math.round((now - then) / 60000));
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes} min`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 48) return `${hours} h`;
+  return `${Math.round(hours / 24)} d`;
+}
+
 export function partyName(parties: { name?: string | null }[] | undefined): string {
   return parties?.find((party) => party.name)?.name || "Account";
 }

@@ -53,6 +53,12 @@ export function extraCitations(items: CitationRef[] | undefined, answer: string)
   return extra;
 }
 
+export function SeverityBadge({ severity }: { severity?: string | null }) {
+  const value = (severity || "unknown").toLowerCase();
+  const tone = value === "critical" || value === "high" ? "bad" : value === "medium" ? "pending" : value === "low" ? "good" : "neutral";
+  return <span className={`badge ${tone}`}>{value}</span>;
+}
+
 export function StatusBadge({ status }: { status?: string | null }) {
   const value = status || "unknown";
   const pending = value === "pending_approval";

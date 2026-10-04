@@ -5,6 +5,8 @@ Ops can also list recent turns. Any persona can read a cited policy section.
 
 import json
 import uuid
+from datetime import date
+from decimal import Decimal, InvalidOperation
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
@@ -214,13 +216,119 @@ class KnowledgeSection(BaseModel):
 
 
 def _tool_view(call: dict) -> dict:
+    result = call.get("result")
     return {
         "name": call["name"],
         "arguments": call.get("arguments") or {},
         "ok": call["ok"],
         "status": call["status"],
-        "preview": _preview(call.get("result")),
+        "preview": _preview(result),
+        "summary": _check_summary(call["name"], result),
     }
+
+
+def _inr(value) -> str:
+    if value is None or value == "":
+        return "—"
+    try:
+        amount = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return str(value)
+    sign = "-" if amount < 0 else ""
+    whole, frac = f"{abs(amount):.2f}".split(".")
+    if len(whole) > 3:
+        head, tail = whole[:-3], whole[-3:]
+        groups = [tail]
+        while head:
+            groups.append(head[-2:])
+            head = head[:-2]
+        whole = ",".join(reversed(groups))
+    return f"{sign}₹{whole}.{frac}"
+
+
+def _when(value) -> str:
+    if not value:
+        return "—"
+    try:
+        parsed = date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return str(value)[:10]
+    return f"{parsed.day} {parsed.strftime('%b')} {parsed.year}"
+
+
+def _row_detail(name: str, row: dict) -> str:
+    if name == "list_bills":
+        return f"{row.get('billNo') or 'Bill'} · {_inr(row.get('taxIncludedAmount'))} · {_when(row.get('billDate'))}"
+    if name in {"list_payments", "list_payment_attempts"}:
+        when_key = "paymentDate" if name == "list_payments" else "attemptDate"
+        detail = f"{_inr(row.get('amount'))} · {row.get('status') or 'unknown'} · {_when(row.get(when_key))}"
+        if row.get("failureReason"):
+            detail += f" · {row['failureReason']}"
+        return detail
+    if name == "list_incidents":
+        title = row.get("title") or "Incident"
+        severity = row.get("severity") or "unknown"
+        status = row.get("status") or "unknown"
+        return f"{title} · {severity} · {status}"
+    if name in {"list_products", "list_balances", "list_offerings"}:
+        label = row.get("name") or row.get("offeringName") or "Item"
+        extra = row.get("status") or row.get("remaining")
+        return f"{label} · {extra}" if extra else str(label)
+    if name == "list_bill_lines":
+        return f"{row.get('name') or 'Line'} · {_inr(row.get('amount'))}"
+    title = row.get("title") or row.get("name") or row.get("billNo")
+    return str(title) if title else "Row"
+
+
+def _rows_summary(name: str, rows: list) -> str:
+    labels = {
+        "list_payments": "payment",
+        "list_payment_attempts": "payment attempt",
+        "list_incidents": "incident",
+        "list_bills": "bill",
+        "list_products": "product",
+        "list_balances": "balance",
+        "list_bill_lines": "bill line",
+    }
+    noun = labels.get(name, "row")
+    if not rows:
+        return f"No {noun}s on this account."
+    shown = [_row_detail(name, row) for row in rows[:2] if isinstance(row, dict)]
+    if not shown:
+        return f"{len(rows)} {noun}{'s' if len(rows) != 1 else ''}."
+    more = len(rows) - len(shown)
+    text = f"{len(rows)} {noun}{'s' if len(rows) != 1 else ''}: " + "; ".join(shown)
+    if more > 0:
+        text += f"; {more} more"
+    return text + "."
+
+
+def _check_summary(name: str, result) -> str:
+    """One readable line for a CSR. The raw preview stays available for the copilot evidence drawer."""
+    if name == "search_knowledge" and isinstance(result, dict):
+        matches = []
+        for row in result.get("results") or []:
+            if not isinstance(row, dict):
+                continue
+            label = f"{row.get('doc') or 'runbook'} · {row.get('section') or 'section'}"
+            if label not in matches:
+                matches.append(label)
+        return "Matched " + "; ".join(matches[:3]) + "." if matches else "No matching runbook."
+    if name == "get_treatment" and isinstance(result, dict):
+        treatment = result.get("treatment") if isinstance(result.get("treatment"), dict) else None
+        if not treatment:
+            return "No active treatment on this account."
+        text = f"Treatment {treatment.get('stage') or 'unknown'} · {treatment.get('status') or 'unknown'}"
+        if treatment.get("holdReason"):
+            text += f". Hold: {treatment['holdReason']}"
+        return text + "."
+    if name == "get_offering" and isinstance(result, dict):
+        return f"Plan {result.get('name') or 'unknown'}."
+    if isinstance(result, list):
+        return _rows_summary(name, result)
+    if isinstance(result, dict):
+        return _rows_summary(name, [result])
+    return "No rows returned."
 
 
 def _preview(value, limit: int = 500) -> str:

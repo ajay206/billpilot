@@ -92,9 +92,9 @@ curl -s -X POST http://localhost:8000/tmf-api/customerBillManagement/v4/billAdju
 4. Open **Unbars** and **Plan changes**. Both say there is no proposal and no endpoint. Do not expect a button there.
 5. Open **Agent runs**. It lists the turns you just made, with decision, token total, estimated cost, latency, and trace id. The trace id is a dash until Langfuse keys are set.
 6. Open **Audit log**. It lists the chat turns and the approval. The request column is the first characters of the request id.
-7. Back on **Approval queue**, **Failure dashboard** refreshes on its own. Click **Simulate failures**. Incidents, a stuck run, a dead letter, and per-topic lag appear. **Replay** on a dead letter is safe to click twice. **Open account** loads that billing account.
-8. **Reports**. Click **Generate reports**. Pick billing, collections, disputes, payments, or agent. **Download CSV** saves that snapshot. The figures are the SQL result for the latest invoice day and month.
-9. **Fraud and revenue findings**. Click **Run checks**. Each row shows the evidence JSON. **Open case** creates a ticket and does not move money. **Propose adjustment** appears only when the evidence has a positive pre-tax amount. The credit stays pending. The signed-in ops user who proposed it cannot approve it. A different person has to use the approval endpoint.
+7. Open **Failures** in the sidebar. The breadcrumb says Failures. Click **Simulate failures**. The incident table shows severity, type, the account holder, and age. A stuck run names the bill cycle and the account. **Replay** on a dead letter is safe to click twice and the row shows the result.
+8. Open **Reports**. Click **Generate reports**. Use Daily or Monthly and the report list. Amounts use ₹. **Download CSV** saves that snapshot.
+9. Open **Findings**. Click **Run checks**. Evidence is labelled fields, not raw JSON. **Open case** creates a ticket and does not move money. **Propose adjustment** appears only when the evidence has a positive pre-tax amount; otherwise the row says why it is not offered. The credit stays pending. The signed-in ops user who proposed it cannot approve it.
 
 ### Switch from the fake model to a real API key
 
