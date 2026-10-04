@@ -1,8 +1,16 @@
 name: ci
 
+# A push to a pull request branch used to start this workflow twice: once for
+# push and once for pull_request. Run it on pull requests, and on main only
+# when something lands there without a pull request.
 on:
-  push:
   pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -40,4 +48,4 @@ jobs:
           ruff check src tests
           ruff format --check src tests
       - name: Test
-        run: pytest
+        run: python -m pytest
