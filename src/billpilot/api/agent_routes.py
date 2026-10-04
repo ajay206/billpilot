@@ -1,4 +1,4 @@
-"""POST /agent/chat. The caller's API key is the persona. The body cannot upgrade it.
+"""POST /agent/chat. The session or API key is the persona. The body cannot upgrade it.
 
 Ops can also list recent turns. Any persona can read a cited policy section.
 """
@@ -11,10 +11,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from billpilot.agent.guardrails import collapse_duplicate_citations, dedupe_citations
 from billpilot.agent.loop import run_agent
 from billpilot.agent.model import build_model
 from billpilot.agent.store import decision_tier
 from billpilot.agent.tools import BssClient, ThreadedASGITransport
+from billpilot.api.access import require_account
 from billpilot.api.security import Principal, get_principal, require_roles
 from billpilot.db import get_session
 from billpilot.models import AgentRun, KnowledgeChunk
@@ -51,17 +53,27 @@ def agent_chat(
     session: Session = Depends(get_session),
     principal: Principal = Depends(get_principal),
 ):
-    """One grounded turn. Tools call this same API with the caller's key.
+    """One grounded turn. Tools call this same API as the same principal.
 
     The call stays in-process (ASGI) so a single worker does not deadlock by
     opening a TCP connection to itself. The CLI, a different process, uses
-    BSS_BASE_URL instead.
+    BSS_BASE_URL and an API key instead.
     """
+    if body.accountId is not None:
+        require_account(session, principal, body.accountId)
     settings = request.app.state.settings
     model = getattr(request.app.state, "chat_model", None) or build_model(settings)
     api_key = request.headers.get("x-api-key") or ""
+    extra: dict[str, str] = {}
+    if not api_key:
+        cookie = request.headers.get("cookie")
+        if cookie:
+            extra["Cookie"] = cookie
+        csrf = request.headers.get("x-csrf-token")
+        if csrf:
+            extra["X-CSRF-Token"] = csrf
     transport = ThreadedASGITransport(request.app)
-    bss = BssClient("http://billpilot.internal", api_key, transport=transport)
+    bss = BssClient("http://billpilot.internal", api_key, transport=transport, extra_headers=extra)
     try:
         result = run_agent(
             message=body.message,
@@ -79,11 +91,11 @@ def agent_chat(
         bss.close()
     return AgentChatResponse(
         runId=result.run_id,
-        answer=result.answer,
+        answer=collapse_duplicate_citations(result.answer),
         refusal=result.refusal,
         refusalReason=result.refusal_reason,
         grounded=result.grounded,
-        citations=result.citations,
+        citations=dedupe_citations(result.citations),
         proposedActions=result.proposed_actions,
         toolCalls=[_tool_view(call) for call in result.tool_calls],
         promptTokens=result.prompt_tokens,

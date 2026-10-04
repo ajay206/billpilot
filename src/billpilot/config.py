@@ -36,6 +36,19 @@ class Settings(BaseSettings):
     customer_number: str = "CUST-000001"
     csr_code: str = "CSR-A"
 
+    # Local default only. Render generates a value. See docs/decisions/0024.
+    session_secret: str = "dev-session-secret"
+    session_ttl_seconds: int = 8 * 60 * 60
+    login_failure_limit: int = 8
+    login_failure_window_seconds: int = 15 * 60
+
+    @field_validator("session_secret")
+    @classmethod
+    def _session_secret_length(cls, value: str) -> str:
+        if len(value) < 16:
+            raise ValueError("SESSION_SECRET must be at least 16 characters.")
+        return value
+
     seed: int = 42
     customer_count: int = 500
     months: int = 6

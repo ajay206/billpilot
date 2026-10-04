@@ -1,6 +1,6 @@
 # BillPilot
 
-BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness. Phase 3 is the product surface: a customer chat, a CSR console, and an ops dashboard, served by the same process, plus optional Langfuse traces and a free-tier deploy.
+BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness. Phase 3 is the product surface: a customer portal, a CSR console, and an ops control tower, served by the same process, plus optional Langfuse traces and a free-tier deploy. Sign-in replaced the persona switcher. The browser session carries a user id. Role and scope are read from the `users` table on the server.
 
 Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one. Kafka, reports, onboarding, and launch are later phases. See [Roadmap](#roadmap).
 
@@ -28,7 +28,7 @@ flowchart LR
     Gen[Synthetic generator]
   end
   subgraph phase3 [Phase 3]
-    UI[Persona UI]
+    UI[Signed-in UI]
     Trace[Langfuse spans]
   end
   subgraph later [Later phases]
@@ -46,7 +46,7 @@ flowchart LR
   API --> DB
   Gen --> DB
   Loop --> DB
-  UI --> API
+  UI -->|session cookie| API
   Loop --> Trace
   API -.-> Broker
 ```
@@ -63,17 +63,30 @@ Requirements: Docker, and for tests a local Python 3.12.
 docker compose up --build
 ```
 
-That starts Postgres, runs migrations, seeds 500 customers across 6 months, and serves the API and the persona UI from one process. The three views are <http://localhost:8000/customer> (also <http://localhost:8000>), <http://localhost:8000/csr>, and <http://localhost:8000/ops>. The API reference is <http://localhost:8000/docs>.
+That starts Postgres, runs migrations, seeds 500 customers across 6 months, seeds the demo users, and serves the API and the UI from one process. Open <http://localhost:8000>. The login page lists the demo accounts. After sign-in, a customer lands on <http://localhost:8000/customer>, a CSR on <http://localhost:8000/csr>, and ops on <http://localhost:8000/ops>. The API reference is <http://localhost:8000/docs>.
 
-The header switches persona and updates the path. Each button sends one of the demo keys below. With no model key, a banner says the copilot is in demo mode. A laptop with limited RAM should use the smaller seed in [How to test locally](docs/deploy.md#how-to-test-locally).
+With no model key, a banner says the copilot is in demo mode. A laptop with limited RAM should use the smaller seed in [How to test locally](docs/deploy.md#how-to-test-locally).
 
-![Customer chat](docs/screenshots/customer.png)
+![Sign in](docs/screenshots/login.png)
+
+![Customer portal](docs/screenshots/customer.png)
 
 ![CSR console](docs/screenshots/csr.png)
 
-![Ops dashboard](docs/screenshots/ops.png)
+![Ops control tower](docs/screenshots/ops.png)
 
-Persona keys (local demo defaults, also in `.env.example`):
+Demo users (synthetic portfolio only — do not reuse these passwords anywhere else):
+
+| User | Password | Role | Sees |
+| --- | --- | --- | --- |
+| `priya.sharma` | `demo-priya` | Customer | `CUST-000001` only |
+| `arjun.mehta` | `demo-arjun` | Customer | `CUST-000003` only |
+| `neha.iyer` | `demo-neha` | Customer | `CUST-000005` only |
+| `ananya.rao` | `demo-ananya` | CSR | Accounts assigned to `CSR-A` |
+| `vikram.nair` | `demo-vikram` | CSR | Accounts assigned to `CSR-B` |
+| `meera.kapoor` | `demo-meera` | Ops | Every account, approvals, runs, and audit |
+
+The same scopes are available to curl and `billpilot ask` through API keys. Those keys are not in the frontend bundle.
 
 | Persona | Header | Sees |
 | --- | --- | --- |
@@ -151,6 +164,7 @@ services:
       API_KEY_OPS: dev-ops-key
       CUSTOMER_NUMBER: CUST-000001
       CSR_CODE: CSR-A
+      SESSION_SECRET: dev-session-secret
     ports:
       - "8000:8000"
 ```
@@ -193,7 +207,11 @@ All TMF-shaped routes are under `/tmf-api`. Lists accept `offset` and `limit` (d
 | GET | `/accountManagement/v4/billingAccount` | all three, within scope; treatment stage, status, hold, exemption |
 | GET | `/accountManagement/v4/fraudFlag` | all three, within scope; synthetic roaming-spike and SIM-swap flags, read only |
 | GET | `/ops/auditLog` | ops |
-| POST | `/agent/chat` | the API key chooses the persona; body is `message` and optional `accountId` |
+| POST | `/auth/login` | public. Sets the session cookie. |
+| POST | `/auth/logout` | the signed-in user |
+| GET | `/auth/me` | the signed-in user. Role and scope come from `users`. |
+| GET | `/auth/demo-accounts` | public. The synthetic demo passwords, marked demo-only. |
+| POST | `/agent/chat` | the session or the API key chooses the persona; body is `message` and optional `accountId` |
 | GET | `/health` | public. Includes `demoMode` and `tracing` |
 | GET | `/ops/agentRuns` | ops. Cost, latency, tokens, decision tier, trace id |
 | GET | `/knowledge/section` | any persona. One cited policy section, for the UI |
@@ -274,7 +292,7 @@ billpilot ask --persona customer "Explain my latest bill, line by line, against 
 
 CSR and ops need an account id. Planted faults alternate assignees: even indexes are `CSR-A`, odd indexes are `CSR-B` (`assigned_csr` is `CSR-A` when `index % 2 == 0`). The first anomaly is index 1, so a double charge is `CSR-B`. The default `CSR_CODE` is `CSR-A` and will not see that account. For a manual CSR session on an odd-index fault, set `CSR_CODE=CSR-B` and use the CSR key. The eval harness rebinds the CSR code per case, so you do not set this for `python -m billpilot.evals`.
 
-The same turn is `POST /agent/chat` with the persona's `X-API-Key`. The body cannot pick a different persona.
+The same turn is `POST /agent/chat` with the persona's `X-API-Key`, or with the browser session. The body cannot pick a different persona. A session cookie has to send `X-CSRF-Token` on that POST.
 
 A credit proposal stays `pending_approval`. Ops approves it with the existing endpoint:
 
@@ -319,7 +337,7 @@ python -m billpilot.evals --estimate-only --ground-truth data/ground_truth.json
 
 ## Decisions
 
-Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the treatment read, and the fraud-flag read. Phase 3 notes cover the React UI, Render and Neon, per-step Langfuse traces (which replace the old on/off hook), and the credit approval queue.
+Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the treatment read, and the fraud-flag read. Phase 3 notes cover the React UI, Render and Neon, per-step Langfuse traces (which replace the old on/off hook), and the credit approval queue. Sign-in notes cover the session cookie, the hand-built shell, and the demo users.
 
 Ops still approves a credit on the existing endpoint. That audit row is where the approver, amount, and timestamp are recorded. The copilot's own audit row records the proposal (`decision=propose`), not an approver, because the copilot is never the approver.
 
@@ -330,8 +348,8 @@ The deck's later phases were reordered. This is the plan the repo follows now.
 | Phase | What it is | Status |
 | --- | --- | --- |
 | 1 | Postgres ledger, synthetic generator, TMF-shaped mock APIs, approval queue, audit log, Docker Compose, CI | Done, on `main` |
-| 2 | Tool-calling copilot, RAG with citations, guardrails, propose-not-apply, eval harness | On the parent branch, not merged |
-| 3 | UI (customer chat, CSR console, ops dashboard), free-tier deploy, Langfuse tracing | This branch |
+| 2 | Tool-calling copilot, RAG with citations, guardrails, propose-not-apply, eval harness | Done, on `main` |
+| 3 | UI (customer portal, CSR console, ops control tower), sign-in and role scope, free-tier deploy, Langfuse tracing | Done, on `main` |
 | 4 | Ops layer: Kafka or Redpanda, failure dashboard, daily and monthly reports, CSR troubleshooting AI (paste an error, get numbered steps) | Not started. `NullPublisher` is the stand-in. Topics already named: `usage.rated`, `bill.run`, `payment.events`, `treatment.actions`, `entitlement.changes`, `system.errors` |
 | 5 | Onboarding and migration: one API call, bulk dry run, reconciliation, idempotent re-runs, rollback | Not started |
 | 6 | Integration and launch | Not started |

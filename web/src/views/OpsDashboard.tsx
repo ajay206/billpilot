@@ -3,13 +3,25 @@ import { useEffect, useState } from "react";
 import { ApiError } from "../api";
 import type { Api } from "../api";
 import { qs } from "../api";
-import { DataTable, Metric, Placeholder, StatusBadge } from "../components";
-import { inr, whenTime } from "../format";
-import type { Adjustment, AgentRun, AuditEntry } from "../types";
+import { ConfirmDialog, DataTable, Metric, Placeholder, Skeleton, StatusBadge } from "../components";
+import { actorLabel, inr, partyName, whenTime } from "../format";
+import type { Account, Adjustment, AgentRun, AuditEntry } from "../types";
 
 type Queue = "credits" | "unbars" | "plans";
+type Decision = { id: string; decision: "approve" | "reject"; amount: string; reason: string };
 
-export function OpsDashboard({ api }: { api: Api }) {
+export function OpsDashboard({
+  api,
+  section,
+  focus,
+  onToast,
+}: {
+  api: Api;
+  section: string;
+  focus: Account | null;
+  onToast?: (text: string, tone?: "ok" | "err") => void;
+}) {
+  const [loading, setLoading] = useState(true);
   const [openDisputes, setOpenDisputes] = useState<number | null>(null);
   const [pending, setPending] = useState<Adjustment[]>([]);
   const [pendingTotal, setPendingTotal] = useState<number | null>(null);
@@ -20,16 +32,15 @@ export function OpsDashboard({ api }: { api: Api }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [decision, setDecision] = useState<Decision | null>(null);
 
   async function reload(current: Api) {
     const [disputes, adjustments, flags, runRows, auditRows] = await Promise.all([
       current.get<unknown[]>(qs("/tmf-api/customerBillManagement/v4/customerBillDispute", { status: "open", limit: 1 })),
-      current.get<Adjustment[]>(
-        qs("/tmf-api/customerBillManagement/v4/billAdjustment", { status: "pending_approval", limit: 20 }),
-      ),
+      current.get<Adjustment[]>(qs("/tmf-api/customerBillManagement/v4/billAdjustment", { status: "pending_approval", limit: 40 })),
       current.get<unknown[]>(qs("/tmf-api/accountManagement/v4/fraudFlag", { limit: 1 })),
-      current.get<AgentRun[]>("/ops/agentRuns?limit=8"),
-      current.get<AuditEntry[]>("/ops/auditLog?limit=8"),
+      current.get<AgentRun[]>("/ops/agentRuns?limit=40"),
+      current.get<AuditEntry[]>("/ops/auditLog?limit=40"),
     ]);
     setOpenDisputes(disputes.total);
     setPending(adjustments.data);
@@ -41,36 +52,44 @@ export function OpsDashboard({ api }: { api: Api }) {
 
   useEffect(() => {
     let cancel = false;
-    reload(api).catch((reason: Error) => {
-      if (!cancel) setError(reason.message);
-    });
+    setLoading(true);
+    reload(api)
+      .catch((reason: Error) => {
+        if (!cancel) setError(reason.message);
+      })
+      .finally(() => {
+        if (!cancel) setLoading(false);
+      });
     return () => {
       cancel = true;
     };
   }, [api]);
 
-  async function decide(id: string, decision: "approve" | "reject") {
-    setBusyId(id);
+  async function decide(next: Decision) {
+    setBusyId(next.id);
     setNotice(null);
     try {
-      const result = await api.post<Adjustment>(
-        `/tmf-api/customerBillManagement/v4/billAdjustment/${id}/approve`,
-        {
-          decision,
-          note: decision === "approve" ? "Approved in the ops console." : "Rejected in the ops console.",
-        },
-      );
+      const result = await api.post<Adjustment>(`/tmf-api/customerBillManagement/v4/billAdjustment/${next.id}/approve`, {
+        decision: next.decision,
+        note: next.decision === "approve" ? "Approved in the ops console." : "Rejected in the ops console.",
+      });
       const approver = result.data.decidedBy || "ops";
-      setNotice(`${decision === "approve" ? "Approved" : "Rejected"} by ${approver}. Status: ${result.data.status}.`);
+      const text = `${next.decision === "approve" ? "Approved" : "Rejected"} by ${approver}. Status: ${result.data.status}.`;
+      setNotice(text);
+      onToast?.(text, "ok");
       await reload(api);
     } catch (reason) {
-      if (reason instanceof ApiError && reason.status === 409) {
-        setNotice("Already decided. Approving again does not apply the credit twice.");
-      } else {
-        setNotice(reason instanceof Error ? reason.message : "The decision was not recorded.");
-      }
+      const text =
+        reason instanceof ApiError && reason.status === 409
+          ? "Already decided. Approving again does not apply the credit twice."
+          : reason instanceof Error
+            ? reason.message
+            : "The decision was not recorded.";
+      setNotice(text);
+      onToast?.(text, "err");
     } finally {
       setBusyId(null);
+      setDecision(null);
     }
   }
 
@@ -79,125 +98,193 @@ export function OpsDashboard({ api }: { api: Api }) {
       <header className="panel-head">
         <div>
           <p className="eyebrow">Ops control tower</p>
-          <h2>Approvals, runs, and the audit log</h2>
+          <h1>Control tower</h1>
           <p className="muted">Ops has no customer chat. This screen approves proposals and reads the log.</p>
         </div>
       </header>
-      {error ? <p className="error">{error}</p> : null}
-      <div className="metrics">
-        <Metric label="Open disputes" value={openDisputes ?? "—"} hint="Status open" />
-        <Metric label="Pending approvals" value={pendingTotal ?? "—"} hint="Credits waiting" />
-        <Metric label="Fraud flags" value={fraud ?? "—"} hint="Synthetic flags" />
-      </div>
-
-      <section className="queue" aria-label="Approval queue">
-        <div className="tabs" role="tablist">
-          {(
-            [
-              ["credits", "Credits"],
-              ["unbars", "Unbars"],
-              ["plans", "Plan changes"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              role="tab"
-              aria-selected={queue === id}
-              className={queue === id ? "tab selected" : "tab"}
-              onClick={() => setQueue(id)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        {notice ? <p className="notice">{notice}</p> : null}
-        {queue === "credits" ? (
-          pending.length === 0 ? (
-            <p className="empty">No credits are pending approval.</p>
-          ) : (
-            <ul className="queue-list">
-              {pending.map((item) => (
-                <li key={item.id} className="queue-item">
-                  <div>
-                    <div className="proposal-top">
-                      <strong>{inr(item.amount)} {item.adjustmentType}</strong>
-                      <StatusBadge status={item.status} />
-                    </div>
-                    <p>{item.reason}</p>
-                    <p className="muted">
-                      Proposed by {item.proposedBy} · {whenTime(item.creationDate)} · Status: {item.status}
-                    </p>
-                  </div>
-                  <div className="decide">
-                    <button type="button" className="primary" disabled={busyId === item.id} onClick={() => decide(item.id, "approve")}>
-                      Approve
-                    </button>
-                    <button type="button" className="ghost" disabled={busyId === item.id} onClick={() => decide(item.id, "reject")}>
-                      Reject
-                    </button>
-                  </div>
-                </li>
+      {error ? (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      ) : null}
+      {focus ? (
+        <article className="focus-card">
+          <p className="eyebrow">Account in focus</p>
+          <h2>{partyName(focus.relatedParty)}</h2>
+          <p className="muted">
+            {focus.customerNumber} · {focus.name} · {focus.state}
+            {focus.treatment ? ` · treatment ${focus.treatment.stage}` : ""}
+          </p>
+        </article>
+      ) : null}
+      {loading ? <Skeleton rows={3} label="Loading the control tower" /> : null}
+      {!loading && !error && (section === "queue" || section === "overview") ? (
+        <>
+          <div className="metrics">
+            <Metric label="Open disputes" value={openDisputes ?? "—"} hint="Status open" />
+            <Metric label="Pending approvals" value={pendingTotal ?? "—"} hint="Credits waiting" />
+            <Metric label="Fraud flags" value={fraud ?? "—"} hint="Synthetic flags" />
+          </div>
+          <section className="panel queue" aria-label="Approval queue">
+            <div className="tabs" role="tablist">
+              {(
+                [
+                  ["credits", "Credits"],
+                  ["unbars", "Unbars"],
+                  ["plans", "Plan changes"],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={queue === id}
+                  className={queue === id ? "tab selected" : "tab"}
+                  onClick={() => setQueue(id)}
+                >
+                  {label}
+                </button>
               ))}
-            </ul>
-          )
-        ) : null}
-        {queue === "unbars" ? (
-          <p className="empty">
-            No unbar proposals. The copilot cannot unbar a line, and Phase 1 has no unbar endpoint. Credits use the existing approve endpoint, which records the approver and refuses a second decision.
-          </p>
-        ) : null}
-        {queue === "plans" ? (
-          <p className="empty">
-            No plan-change proposals. The copilot cannot change a plan. That proposal type is not in the ledger. Credit approve and reject stay on the Phase 1 endpoint.
-          </p>
-        ) : null}
-      </section>
-
-      <section aria-label="Recent agent runs">
-        <h3>Recent agent runs</h3>
-        <DataTable
-          rows={runs}
-          empty="No copilot turns yet."
-          columns={[
-            { key: "when", label: "When", render: (row) => whenTime(row.occurredAt) },
-            { key: "who", label: "Persona", render: (row) => row.persona },
-            { key: "decision", label: "Decision", render: (row) => row.decision },
-            { key: "tokens", label: "Tokens", render: (row) => `${row.promptTokens + row.completionTokens}` },
-            { key: "cost", label: "Cost", render: (row) => `$${row.estimatedCostUsd}` },
-            { key: "latency", label: "Latency", render: (row) => `${row.latencyMs} ms` },
-            { key: "trace", label: "Trace", render: (row) => row.traceId || "—" },
-          ]}
+            </div>
+            {notice ? (
+              <p className="notice" role="status">
+                {notice}
+              </p>
+            ) : null}
+            {queue === "credits" ? (
+              pending.length === 0 ? (
+                <p className="empty">No credits are pending approval.</p>
+              ) : (
+                <ul className="queue-list">
+                  {pending.map((item) => (
+                    <li key={item.id} className="queue-item">
+                      <div>
+                        <div className="proposal-top">
+                          <strong>
+                            {inr(item.amount)} {item.adjustmentType}
+                          </strong>
+                          <StatusBadge status={item.status} />
+                        </div>
+                        <p>{item.reason}</p>
+                        <p className="muted">
+                          {item.billingAccount.name ? `${item.billingAccount.name} · ` : ""}
+                          Proposed by {actorLabel(item.proposedBy)} · {whenTime(item.creationDate)}
+                        </p>
+                      </div>
+                      <div className="decide">
+                        <button
+                          type="button"
+                          className="primary"
+                          disabled={busyId === item.id}
+                          onClick={() =>
+                            setDecision({
+                              id: item.id,
+                              decision: "approve",
+                              amount: inr(item.amount),
+                              reason: item.reason,
+                            })
+                          }
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          className="ghost"
+                          disabled={busyId === item.id}
+                          onClick={() =>
+                            setDecision({
+                              id: item.id,
+                              decision: "reject",
+                              amount: inr(item.amount),
+                              reason: item.reason,
+                            })
+                          }
+                        >
+                          Reject
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )
+            ) : null}
+            {queue === "unbars" ? (
+              <p className="empty">No unbar proposals. Unbars are a Phase 4 placeholder. Credits stay on this queue until ops confirms them.</p>
+            ) : null}
+            {queue === "plans" ? (
+              <p className="empty">No plan-change proposals. Plan changes are a Phase 4 placeholder.</p>
+            ) : null}
+          </section>
+          <div className="placeholders">
+            <Placeholder phase="Phase 4" title="Failure dashboard">
+              Live failures, stuck bill runs, consumer lag, and the fraud and revenue checks. The event publisher is still a no-op, so this panel is a placeholder.
+            </Placeholder>
+            <Placeholder phase="Phase 4" title="Reports">
+              Daily and monthly billing, collections, dispute, and treatment reports are not generated yet.
+            </Placeholder>
+          </div>
+        </>
+      ) : null}
+      {!loading && !error && section === "runs" ? (
+        <section className="panel" aria-label="Recent agent runs">
+          <h2>Recent agent runs</h2>
+          <DataTable
+            label="Agent runs"
+            rows={runs}
+            empty="No copilot turns yet."
+            columns={[
+              { key: "when", label: "When", render: (row) => whenTime(row.occurredAt), value: (row) => row.occurredAt },
+              { key: "who", label: "Persona", render: (row) => row.persona, value: (row) => row.persona },
+              { key: "decision", label: "Decision", render: (row) => row.decision, value: (row) => row.decision },
+              {
+                key: "tokens",
+                label: "Tokens",
+                render: (row) => `${row.promptTokens + row.completionTokens}`,
+                value: (row) => row.promptTokens + row.completionTokens,
+              },
+              { key: "cost", label: "Cost", render: (row) => `$${row.estimatedCostUsd}`, value: (row) => Number(row.estimatedCostUsd) },
+              { key: "latency", label: "Latency", render: (row) => `${row.latencyMs} ms`, value: (row) => row.latencyMs },
+              { key: "trace", label: "Trace", render: (row) => row.traceId || "—", value: (row) => row.traceId || "" },
+            ]}
+          />
+        </section>
+      ) : null}
+      {!loading && !error && section === "audit" ? (
+        <section className="panel" aria-label="Audit log">
+          <h2>Audit log</h2>
+          <DataTable
+            label="Audit log"
+            rows={audit}
+            empty="No audit rows."
+            columns={[
+              { key: "when", label: "When", render: (row) => whenTime(row.occurredAt), value: (row) => row.occurredAt },
+              { key: "actor", label: "Actor", render: (row) => `${row.actorRole} · ${row.actorId}`, value: (row) => row.actorId },
+              { key: "action", label: "Action", render: (row) => row.action, value: (row) => row.action },
+              { key: "resource", label: "Resource", render: (row) => row.resourceType, value: (row) => row.resourceType },
+              {
+                key: "request",
+                label: "Request",
+                render: (row) => <code title={row.requestId}>{row.requestId.slice(0, 8)}</code>,
+                value: (row) => row.requestId,
+              },
+            ]}
+          />
+        </section>
+      ) : null}
+      {decision ? (
+        <ConfirmDialog
+          title={decision.decision === "approve" ? "Approve this credit?" : "Reject this credit?"}
+          body={
+            decision.decision === "approve"
+              ? `Approve ${decision.amount}. ${decision.reason} This applies the credit to the bill. It cannot be applied twice.`
+              : `Reject ${decision.amount}. ${decision.reason} The bill does not change.`
+          }
+          confirmLabel={decision.decision === "approve" ? "Confirm approval" : "Confirm rejection"}
+          busy={busyId === decision.id}
+          onCancel={() => setDecision(null)}
+          onConfirm={() => void decide(decision)}
         />
-      </section>
-
-      <section aria-label="Audit log">
-        <h3>Audit log</h3>
-        <DataTable
-          rows={audit}
-          empty="No audit rows."
-          columns={[
-            { key: "when", label: "When", render: (row) => whenTime(row.occurredAt) },
-            { key: "actor", label: "Actor", render: (row) => `${row.actorRole} · ${row.actorId}` },
-            { key: "action", label: "Action", render: (row) => row.action },
-            { key: "resource", label: "Resource", render: (row) => row.resourceType },
-            {
-              key: "request",
-              label: "Request",
-              render: (row) => <code title={row.requestId}>{row.requestId.slice(0, 8)}</code>,
-            },
-          ]}
-        />
-      </section>
-
-      <div className="placeholders">
-        <Placeholder phase="Phase 4" title="Failure dashboard">
-          Live failures, stuck bill runs, consumer lag, and the fraud and revenue checks. The event publisher is still a no-op, so this panel is a placeholder.
-        </Placeholder>
-        <Placeholder phase="Phase 4" title="Reports">
-          Daily and monthly billing, collections, dispute, and treatment reports are not generated yet.
-        </Placeholder>
-      </div>
+      ) : null}
     </div>
   );
 }

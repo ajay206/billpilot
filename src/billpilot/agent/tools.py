@@ -280,12 +280,20 @@ class BssClient:
     """HTTP client for the mock BSS. The API key is the persona's key."""
 
     def __init__(
-        self, base_url: str, api_key: str, transport: httpx.BaseTransport | None = None, timeout: float = 30.0
+        self,
+        base_url: str,
+        api_key: str = "",
+        transport: httpx.BaseTransport | None = None,
+        timeout: float = 30.0,
+        extra_headers: dict[str, str] | None = None,
     ):
         self.base_url = base_url
+        headers = dict(extra_headers or {})
+        if api_key:
+            headers["X-API-Key"] = api_key
         self._client = httpx.Client(
             base_url=base_url,
-            headers={"X-API-Key": api_key},
+            headers=headers,
             transport=transport,
             timeout=timeout,
         )

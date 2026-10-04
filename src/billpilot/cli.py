@@ -88,9 +88,21 @@ def seed_if_empty() -> None:
         raise SystemExit("The customers table is missing. Run `billpilot migrate` first.")
     if count:
         print(f"Ledger already has {count} customers. Skipping seed.")
+        added = _ensure_demo_users(settings.database_url)
+        print(f"Demo users ready ({added} added).")
         return
     print("Ledger is empty. Seeding synthetic customers.")
     seed(config_from_env(), Path(settings.ground_truth_path))
+
+
+def _ensure_demo_users(url: str) -> int:
+    from billpilot.auth.demo import ensure_demo_users
+
+    engine = create_engine(url, pool_pre_ping=True)
+    with Session(engine) as session:
+        added = ensure_demo_users(session)
+    engine.dispose()
+    return added
 
 
 def seed(config: GeneratorConfig, output: Path) -> None:
@@ -104,6 +116,7 @@ def seed(config: GeneratorConfig, output: Path) -> None:
     print(f"Seeded {document['customer_count']} customers as of {document['as_of']} ({document['currency']}).")
     print(f"Planted {sum(counts.values())} anomalies across {len(counts)} types.")
     print(f"Ground truth: {output}")
+    print("Demo users ready.")
 
 
 def _ask(args) -> None:

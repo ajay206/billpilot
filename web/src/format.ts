@@ -36,6 +36,16 @@ export function partyName(parties: { name?: string | null }[] | undefined): stri
   return parties?.find((party) => party.name)?.name || "Account";
 }
 
+export function actorLabel(actor: string | null | undefined): string {
+  if (!actor) return "unknown";
+  const split = actor.indexOf(":");
+  if (split === -1) return actor;
+  const kind = actor.slice(0, split);
+  const rest = actor.slice(split + 1);
+  if (kind === "user" || kind === "csr" || kind === "customer" || kind === "ops") return rest || kind;
+  return actor;
+}
+
 export function characteristic(rows: { name: string; value: string }[] | undefined, name: string): string {
   return rows?.find((row) => row.name === name)?.value ?? "";
 }

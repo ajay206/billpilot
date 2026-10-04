@@ -1,11 +1,12 @@
 [project]
 name = "billpilot"
-version = "0.3.0"
-description = "BillPilot mock BSS and billing copilot: synthetic telecom data, TMF-shaped APIs, a tool-calling agent, and a persona UI."
+version = "0.4.0"
+description = "BillPilot mock BSS and billing copilot: synthetic telecom data, TMF-shaped APIs, a tool-calling agent, and a signed-in role UI."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.14",
+    "argon2-cffi>=23.1",
     "faker>=33.1.0",
     "fastapi>=0.115",
     "httpx>=0.28",

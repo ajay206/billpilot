@@ -375,6 +375,21 @@ class Incident(Base):
     related_entity_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
 
 
+class User(Base):
+    """A sign-in identity. Scope is a customer number or a CSR code, not a client claim."""
+
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    username: Mapped[str] = mapped_column(String(64))
+    display_name: Mapped[str] = mapped_column(String(120))
+    password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[str] = mapped_column(String(16))
+    customer_number: Mapped[str | None] = mapped_column(String(32))
+    csr_code: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class AuditLog(Base):
     __tablename__ = "audit_log"
 

@@ -67,6 +67,37 @@ def citations_in(text: str) -> list[dict[str, str]]:
     return [{"doc": doc.strip(), "section": section.strip()} for doc, section in CITATION_RE.findall(text)]
 
 
+def dedupe_citations(items: list[dict[str, str]]) -> list[dict[str, str]]:
+    """One entry per document and section, in first-seen order."""
+    unique: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for item in items:
+        doc = (item.get("doc") or "").strip()
+        section = (item.get("section") or "").strip()
+        key = (doc, section)
+        if not doc or not section or key in seen:
+            continue
+        seen.add(key)
+        unique.append({"doc": doc, "section": section})
+    return unique
+
+
+def collapse_duplicate_citations(answer: str) -> str:
+    """Drop a repeated [doc § section] marker. The first one stays."""
+    seen: set[tuple[str, str]] = set()
+
+    def replace(match: re.Match[str]) -> str:
+        key = (match.group(1).strip(), match.group(2).strip())
+        if key in seen:
+            return ""
+        seen.add(key)
+        return match.group(0)
+
+    collapsed = CITATION_RE.sub(replace, answer)
+    collapsed = re.sub(r"[ \t]{2,}", " ", collapsed)
+    return collapsed.strip()
+
+
 def screen_input(message: str, persona: str, customer_number: str | None) -> str | None:
     """Return a refusal reason, or None when the message may go to the model."""
     text = message.strip()
@@ -176,6 +207,7 @@ def screen_output(
     check replaces the answer. The model does not get a second chance in the
     same turn: an ungrounded amount is not shown.
     """
+    answer = collapse_duplicate_citations(answer)
     trusted: list[dict[str, str]] = []
     known = {(item["doc"], item["section"]) for item in retrieved}
     seen: set[tuple[str, str]] = set()
@@ -184,6 +216,7 @@ def screen_output(
         if key in known and key not in seen:
             trusted.append(citation)
             seen.add(key)
+    trusted = dedupe_citations(trusted)
     invented = [citation for citation in citations_in(answer) if (citation["doc"], citation["section"]) not in known]
     evidence_text = "\n".join(evidence)
     missing_amounts = sorted(_amounts(answer) - _amounts(evidence_text))

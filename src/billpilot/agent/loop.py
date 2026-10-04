@@ -70,7 +70,13 @@ def run_agent(
 ) -> AgentResult:
     started = time.perf_counter()
     prompt = system_prompt(persona, account_id, customer_number)
-    secrets = [settings.api_key_customer, settings.api_key_csr, settings.api_key_ops, settings.llm_api_key]
+    secrets = [
+        settings.api_key_customer,
+        settings.api_key_csr,
+        settings.api_key_ops,
+        settings.llm_api_key,
+        settings.session_secret,
+    ]
     tracer = build_turn_trace(
         settings,
         persona=persona,
