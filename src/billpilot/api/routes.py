@@ -268,18 +268,7 @@ def create_dispute(
         resolved_at=None,
     )
     session.add(dispute)
-    treatment = session.scalar(
-        select(AccountTreatment).where(
-            AccountTreatment.account_id == account.id,
-            AccountTreatment.status == "active",
-        )
-    )
-    held = False
-    if treatment is not None:
-        treatment.status = "held"
-        treatment.hold_reason = "open_dispute"
-        treatment.updated_at = now
-        held = True
+    held = _hold_active_treatment(session, account.id, now, "open_dispute")
     write_audit(
         session,
         principal,
@@ -774,8 +763,9 @@ def create_ticket(
     body: TicketCreate,
     request: Request,
     session: Session = Depends(get_session),
-    principal: Principal = Depends(get_principal),
+    principal: Principal = Depends(require_roles("csr")),
 ):
+    """CSR opens a case. An active collections treatment is held, matching a dispute."""
     account = require_account(session, principal, body.billingAccount.id)
     now = datetime.now(UTC)
     ticket = Ticket(
@@ -791,6 +781,7 @@ def create_ticket(
         opened_at=now,
     )
     session.add(ticket)
+    held = _hold_active_treatment(session, account.id, now, "open_ticket")
     write_audit(
         session,
         principal,
@@ -799,11 +790,36 @@ def create_ticket(
         "ticket",
         ticket.id,
         account.id,
-        {"ticketType": body.ticketType, "severity": body.severity},
+        {"ticketType": body.ticketType, "severity": body.severity, "treatmentHeld": held},
+    )
+    request.app.state.publisher.publish(
+        "treatment.actions",
+        {
+            "action": "hold" if held else "ticket_opened",
+            "accountId": str(account.id),
+            "ticketId": str(ticket.id),
+            "reason": "open_ticket",
+        },
     )
     session.commit()
     session.refresh(ticket)
     return to_ticket(request, session, ticket)
+
+
+def _hold_active_treatment(session: Session, account_id: uuid.UUID, now: datetime, reason: str) -> bool:
+    """Pause the open ladder. A hold is not a credit and not a bar removal."""
+    treatment = session.scalar(
+        select(AccountTreatment).where(
+            AccountTreatment.account_id == account_id,
+            AccountTreatment.status == "active",
+        )
+    )
+    if treatment is None:
+        return False
+    treatment.status = "held"
+    treatment.hold_reason = reason
+    treatment.updated_at = now
+    return True
 
 
 @router.get(
@@ -828,6 +844,7 @@ def get_ticket(
 
 
 @router.get("/prepayBalanceManagement/v4/bucket", response_model=list[Bucket], tags=["TMF654 Balance"])
+@router.get("/prepayBalanceManagement/v4/balance", response_model=list[Bucket], tags=["TMF654 Balance"])
 def list_buckets(
     request: Request,
     response: Response,

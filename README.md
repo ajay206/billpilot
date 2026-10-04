@@ -68,6 +68,63 @@ docker compose run --rm seed
 
 Ground truth for the planted faults is written to `data/ground_truth.json` (gitignored).
 
+### Pull a published image
+
+GitHub Actions publishes `ghcr.io/ajay206/billpilot` on pushes to `main` (tags `latest` and the short commit SHA) and on version tags `v*`. Pull requests only build the image; they do not push it.
+
+After the first publish, set the package visibility to **Public** once, under the package settings on GitHub. Until that is done, a pull from outside this repository is rejected.
+
+```bash
+docker pull ghcr.io/ajay206/billpilot:latest
+```
+
+The image migrates on startup and does not load the synthetic ledger by itself. This Compose file uses the published image for both the one-shot seed and the API:
+
+```yaml
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: billpilot
+      POSTGRES_PASSWORD: billpilot
+      POSTGRES_DB: billpilot
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U billpilot -d billpilot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  seed:
+    image: ghcr.io/ajay206/billpilot:latest
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://billpilot:billpilot@postgres:5432/billpilot
+    volumes:
+      - ./data:/app/data
+    command: ["billpilot", "migrate-and-seed"]
+
+  api:
+    image: ghcr.io/ajay206/billpilot:latest
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://billpilot:billpilot@postgres:5432/billpilot
+      API_KEY_CUSTOMER: dev-customer-key
+      API_KEY_CSR: dev-csr-key
+      API_KEY_OPS: dev-ops-key
+      CUSTOMER_NUMBER: CUST-000001
+      CSR_CODE: CSR-A
+    ports:
+      - "8000:8000"
+```
+
 ### Tests
 
 ```bash
@@ -93,8 +150,8 @@ All TMF-shaped routes are under `/tmf-api`. Lists accept `offset` and `limit` (d
 | GET | `/paymentManagement/v4/payment` | all three, within scope |
 | GET | `/paymentManagement/v4/paymentAttempt` | same; a small extension so an unposted payment stays visible |
 | GET | `/productInventory/v4/product` | subscription, VAS, and entitlement |
-| GET, POST | `/troubleTicket/v4/troubleTicket` | read: all three; create: customer, csr |
-| GET | `/prepayBalanceManagement/v4/bucket` | TMF654-style balance |
+| GET, POST | `/troubleTicket/v4/troubleTicket` | read: all three; create: csr only |
+| GET | `/prepayBalanceManagement/v4/bucket` and `/balance` | TMF654 buckets; `/balance` is the deck's name for the same read |
 | GET | `/ops/auditLog` | ops |
 | GET | `/health` | public |
 
@@ -145,6 +202,7 @@ Apart from those faults, invoices balance: line amounts sum to the total, tax is
 - Applying a credit does not recompute GST. The tax line stays; the adjustment line is signed so the lines still sum to the new total.
 - Crediting an already-paid bill reduces the total and can leave amount due at zero. It does not create a cash refund.
 - The collections ladder is reminder at 3 days past due, soft bar at 10, hard bar at 20, disconnect at 45.
+- An unpaid bill whose due date is already past gets a flat ₹50 late fee, plus GST. A failed autopay that is later posted is a labelled healthy control, not a fault.
 - The clock inside the generator is 1 October 2026. It does not read the wall clock. Live API writes do.
 - Rate limits are counted in this process only. They are not shared across replicas.
 
@@ -158,4 +216,4 @@ Short notes on why the obvious alternatives were not taken live in [docs/decisio
 - Kafka (or Redpanda) and a consumer for failed downstream work. `NullPublisher` is the stand-in. Topics already named: `usage.rated`, `bill.run`, `payment.events`, `treatment.actions`, `entitlement.changes`, `system.errors`.
 - Dashboards, onboarding, and bulk migration.
 - A user interface.
-- Certified TM Forum conformance, late fees, split GST, and multi-replica rate limits.
+- Certified TM Forum conformance, split GST, and multi-replica rate limits.

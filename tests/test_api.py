@@ -28,6 +28,7 @@ PAYMENTS = "/tmf-api/paymentManagement/v4/payment"
 PRODUCTS = "/tmf-api/productInventory/v4/product"
 TICKETS = "/tmf-api/troubleTicket/v4/troubleTicket"
 BUCKETS = "/tmf-api/prepayBalanceManagement/v4/bucket"
+BALANCE = "/tmf-api/prepayBalanceManagement/v4/balance"
 
 
 @pytest.fixture
@@ -63,7 +64,19 @@ def test_openapi_says_this_is_a_learning_mock(client: TestClient):
     assert "not a certified" in document["info"]["description"]
     assert "not a certified" in DESCRIPTION
     paths = set(document["paths"])
-    for path in (BILLS, RATES, DISPUTES, ADJUSTMENTS, USAGE, OFFERINGS, PAYMENTS, PRODUCTS, TICKETS, BUCKETS):
+    for path in (
+        BILLS,
+        RATES,
+        DISPUTES,
+        ADJUSTMENTS,
+        USAGE,
+        OFFERINGS,
+        PAYMENTS,
+        PRODUCTS,
+        TICKETS,
+        BUCKETS,
+        BALANCE,
+    ):
         assert path in paths
     assert f"{ADJUSTMENTS}/{{adjustment_id}}/approve" in paths
 
@@ -126,6 +139,9 @@ def test_pagination_and_filters(client: TestClient, session: Session):
     buckets = client.get(BUCKETS, headers=CUSTOMER, params={"limit": 5})
     assert buckets.status_code == 200
     assert "remainingValue" in buckets.json()[0]
+    balance = client.get(BALANCE, headers=CUSTOMER, params={"limit": 5})
+    assert balance.status_code == 200
+    assert balance.headers["X-Total-Count"] == buckets.headers["X-Total-Count"]
 
 
 def test_roles_cannot_cross_into_each_others_writes(client: TestClient, session: Session):
@@ -145,6 +161,13 @@ def test_roles_cannot_cross_into_each_others_writes(client: TestClient, session:
     }
     assert client.post(ADJUSTMENTS, headers=CUSTOMER, json=adjustment).status_code == 403
     assert client.post(ADJUSTMENTS, headers=OPS, json=adjustment).status_code == 403
+    ticket = {
+        "billingAccount": {"id": account_id},
+        "name": "Not this role",
+        "description": "Only the assigned CSR opens a trouble ticket.",
+    }
+    assert client.post(TICKETS, headers=CUSTOMER, json=ticket).status_code == 403
+    assert client.post(TICKETS, headers=OPS, json=ticket).status_code == 403
     assert client.get("/ops/auditLog", headers=CUSTOMER).status_code == 403
     assert client.get("/ops/auditLog", headers=CSR).status_code == 403
     other = _other_account(session)
@@ -188,6 +211,8 @@ def test_dispute_and_ticket_are_audited(client: TestClient, session: Session):
     )
     assert ticket.status_code == 201
     assert ticket.json()["status"] == "acknowledged"
+    assert [topic for topic, _payload in publisher.events] == ["treatment.actions", "treatment.actions"]
+    assert publisher.events[1][1]["action"] == "ticket_opened"
     audit = client.get("/ops/auditLog", headers=OPS, params={"limit": 100})
     actions = {row["action"] for row in audit.json()}
     assert "dispute.create" in actions

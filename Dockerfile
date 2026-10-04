@@ -1,5 +1,10 @@
 FROM python:3.12-slim
 
+LABEL org.opencontainers.image.source="https://github.com/ajay206/billpilot" \
+      org.opencontainers.image.url="https://github.com/ajay206/billpilot" \
+      org.opencontainers.image.title="BillPilot" \
+      org.opencontainers.image.description="Phase 1 mock BSS for BillPilot: synthetic telecom billing data and TMF-shaped APIs."
+
 WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1

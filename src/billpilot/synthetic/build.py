@@ -13,6 +13,7 @@ from faker import Faker
 
 from billpilot.billing import (
     AS_OF,
+    LATE_FEE,
     ZERO,
     TreatmentThresholds,
     add_months,
@@ -381,8 +382,24 @@ def _bill_periods(bundle, periods, anomaly, config, delinquent, rng) -> None:
         if pay:
             _add_posted_payment(bundle, invoice, period_index, METHODS[(bundle.index + period_index) % len(METHODS)])
         else:
+            if invoice["due_date"] < AS_OF:
+                _add_late_fee(bundle, invoice)
             invoice["amount_due"] = invoice["total"]
             invoice["status"] = "issued"
+
+
+def _add_late_fee(bundle: Bundle, invoice: dict) -> None:
+    add_line(
+        bundle,
+        invoice,
+        charge_type="late_fee",
+        description="Late fee",
+        qty=Decimal("1"),
+        unit_price=LATE_FEE,
+        amount=LATE_FEE,
+        key=("late-fee", invoice["id"]),
+    )
+    recompute_invoice(bundle, invoice)
 
 
 def _add_period_usage(bundle, period, period_index, anomaly, config, rng) -> None:

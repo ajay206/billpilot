@@ -11,6 +11,8 @@ from decimal import ROUND_HALF_UP, Decimal
 # The generator never reads the wall clock. Every seeded timestamp is derived from this date.
 AS_OF = date(2026, 10, 1)
 GST_RATE = Decimal("0.18")
+# Flat late fee added to an unpaid bill once its due date is past the synthetic clock.
+LATE_FEE = Decimal("50.00")
 MONEY = Decimal("0.01")
 QTY = Decimal("0.001")
 ZERO = Decimal("0.00")

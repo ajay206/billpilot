@@ -4,9 +4,9 @@
 
 Access is an `X-API-Key` header mapped to one of three roles.
 
-- Customer: one customer number. Read own bills, usage, payments, products, and balances. Create a dispute or a ticket. Cannot propose or approve a credit.
-- CSR: one CSR code. The same reads, limited to accounts assigned to that code. Can propose an adjustment. Cannot approve.
-- Ops: read across accounts. The only role that can approve or reject. Cannot propose, and cannot open a customer dispute. Ops is not a customer-chat identity.
+- Customer: one customer number. Read own bills, usage, payments, products, and balances. Raise a dispute. Cannot open a general ticket, propose a credit, or approve one.
+- CSR: one CSR code. The same reads, limited to accounts assigned to that code. Can open a ticket and propose an adjustment. Cannot approve. Opening a dispute or a ticket holds an active treatment; that hold is not a credit.
+- Ops: read across accounts. The only role that can approve or reject. Cannot propose, and cannot open a dispute or a ticket. Ops is not a customer-chat identity.
 
 The catalogue is readable by any authenticated role. `/health` and the docs are public.
 
