@@ -2,11 +2,11 @@
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from tests.anomaly_checks import CHECKERS, check_anomaly, check_controls
 
 from billpilot.schema import TABLES
 from billpilot.synthetic.config import ANOMALY_TYPES, small_config
 from billpilot.synthetic.generate import build_world
+from tests.anomaly_checks import CHECKERS, check_anomaly, check_controls
 
 
 def _load(session: Session) -> dict[str, list[dict]]:

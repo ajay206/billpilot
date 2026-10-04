@@ -4,12 +4,12 @@ import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from tests.conftest import _alembic
 
 from billpilot.models import Base
 from billpilot.schema import INSERT_ORDER, TABLES
 from billpilot.synthetic.config import small_config
 from billpilot.synthetic.generate import generate
+from tests.conftest import _alembic
 
 
 def test_migration_creates_every_table(engine):
