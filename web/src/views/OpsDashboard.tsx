@@ -4,6 +4,8 @@ import { ApiError } from "../api";
 import type { Api } from "../api";
 import { qs } from "../api";
 import { ConfirmDialog, DataTable, Metric, Skeleton, StatusBadge } from "../components";
+import { MigrationDesk } from "../features/migration/MigrationDesk";
+import { OnboardingPanel } from "../features/onboarding/OnboardingPanel";
 import { FailureDashboard } from "../features/ops/failures/FailureDashboard";
 import { FindingsPanel } from "../features/ops/findings/FindingsPanel";
 import { ReportsPanel } from "../features/ops/reports/ReportsPanel";
@@ -289,6 +291,8 @@ export function OpsDashboard({
           onConfirm={() => void decide(decision)}
         />
       ) : null}
+      {!loading && !error && section === "onboarding" ? <OnboardingPanel api={api} /> : null}
+      {!loading && !error && section === "migration" ? <MigrationDesk api={api} /> : null}
     </div>
   );
 }

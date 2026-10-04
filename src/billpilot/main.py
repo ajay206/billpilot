@@ -23,6 +23,8 @@ from billpilot.api.ops_routes import router as ops_router
 from billpilot.api.routes import audit_router, router
 from billpilot.config import Settings, get_settings
 from billpilot.logging import configure_logging, request_id_var
+from billpilot.migration.routes import router as migration_router
+from billpilot.onboarding.routes import router as onboarding_router
 from billpilot.ops.pipeline import build_publisher
 from billpilot.ops.worker import start_workers
 from billpilot.ui import mount_ui
@@ -39,6 +41,10 @@ The browser signs in at `POST /auth/login`. Role and scope are loaded from the
 users table. `X-API-Key` still works for the CLI and for service calls: the
 customer key sees one customer, the CSR key sees accounts assigned to that CSR,
 and the ops key can read across accounts and approve adjustments.
+
+`POST /onboarding` (also `/tmf-api/customerManagement/v4/onboarding`) opens one
+customer. Ops migration lives under `/ops/migration`: dry run, sign-off, commit,
+reconciliation, and rollback. The copilot can read a batch. It cannot commit one.
 
 `POST /agent/chat` is the copilot. It calls these APIs as the same principal.
 It can propose a credit and cannot approve one. Set `LLM_BACKEND=api` to use a
@@ -156,6 +162,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(agent_router)
     app.include_router(auth_router)
     app.include_router(ops_router)
+    app.include_router(onboarding_router)
+    app.include_router(migration_router)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:

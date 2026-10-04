@@ -58,6 +58,20 @@ _UNAUTHORIZED = re.compile(
 
 _DO_NOT = re.compile(r"\b(do not|don't|never|do not post|leave it pending)\b", re.IGNORECASE)
 
+# Committing or rolling back a migration writes the ledger. The copilot may only read a batch.
+_MIGRATION_WRITE = re.compile(
+    r"("
+    r"\bcommit the migration\b"
+    r"|\broll back the (migration|batch)\b"
+    r"|\brollback the (migration|batch)\b"
+    r"|\bsign off (on )?the (mapping|migration|batch)\b"
+    r"|\bapprove the (mapping|migration)\b"
+    r"|\brun the migration\b"
+    r")",
+    re.IGNORECASE,
+)
+_MIGRATION_READ = re.compile(r"\bmigration batch\b|\bmigration rejects\b|\blegacy file\b", re.IGNORECASE)
+
 
 def format_citation(doc: str, section: str) -> str:
     return f"[{doc} § {section}]"
@@ -107,9 +121,11 @@ def screen_input(message: str, persona: str, customer_number: str | None) -> str
         return "too_long"
     if _INJECTION.search(text):
         return "prompt_injection"
+    if persona != "ops" and _MIGRATION_READ.search(text):
+        return "out_of_scope"
     if _OUT_OF_SCOPE.search(text):
         return "out_of_scope"
-    if _UNAUTHORIZED.search(text) and not _DO_NOT.search(text):
+    if (_UNAUTHORIZED.search(text) or _MIGRATION_WRITE.search(text)) and not _DO_NOT.search(text):
         return "needs_a_person"
     if persona == "customer" and customer_number:
         others = [number.upper() for number in CUSTOMER_RE.findall(text) if number.upper() != customer_number.upper()]

@@ -29,6 +29,8 @@ def system_prompt(persona: str, account_id: str | None, customer_number: str | N
         "When the message starts with Troubleshooting, follow the matching runbook as numbered steps, "
         "cite that section, read the account with tools, and mention related incidents. Do not apply a fix.\n"
         "Nobody using this copilot may apply a credit, approve one, unbar a line, or change a plan.\n"
+        "Ops may read migration batch status, balance totals, and reject reasons. "
+        "Do not commit, sign off, or roll back a batch. A person does that on the migration desk.\n"
         "If the tools and the cited sections do not support an amount, say you do not know. "
         "Do not use another customer's data.\n"
     )

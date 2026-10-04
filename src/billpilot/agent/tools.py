@@ -31,6 +31,7 @@ ACCOUNTS = "/tmf-api/accountManagement/v4/billingAccount"
 FLAGS = "/tmf-api/accountManagement/v4/fraudFlag"
 AUDIT = "/ops/auditLog"
 INCIDENTS = "/ops/incidents"
+MIGRATION = "/ops/migration"
 
 _CSR_OPS = frozenset({"csr", "ops"})
 _OBJECT = "object"
@@ -223,6 +224,24 @@ TOOLS: tuple[ToolSpec, ...] = (
         "List operations incidents linked to the account: failed payments, stuck bill runs, mismatches.",
         _ACCOUNT,
         _CSR_OPS,
+    ),
+    ToolSpec(
+        "list_migration_batches",
+        "List migration batches and their status. Read only. Ops only. This does not commit or roll back a batch.",
+        _schema({}, []),
+        _OPS_ONLY,
+    ),
+    ToolSpec(
+        "get_migration_batch",
+        "Read one migration batch: status, balance totals, and the suggested plan mapping. Read only. Ops only.",
+        _schema({"batch_id": {**_STRING, "description": "Migration batch UUID. Omit to read the latest."}}, []),
+        _OPS_ONLY,
+    ),
+    ToolSpec(
+        "list_migration_rejects",
+        "List rejected rows in a migration batch and the reason for each. Read only. Ops only.",
+        _schema({"batch_id": {**_STRING, "description": "Migration batch UUID. Omit for the latest batch."}}, []),
+        _OPS_ONLY,
     ),
 )
 
@@ -507,6 +526,20 @@ class ToolExecutor:
             if account:
                 params["accountId"] = account
             return self._project(self.bss.request("GET", INCIDENTS, params=params), _identity)
+        if name == "list_migration_batches":
+            listed = self.bss.request("GET", f"{MIGRATION}/batches", params={"limit": 10})
+            return self._project(listed, _migration_batches)
+        if name == "get_migration_batch":
+            batch_id = arguments.get("batch_id")
+            if batch_id:
+                found = self.bss.request("GET", f"{MIGRATION}/batches/{batch_id}")
+                return self._project(found, _migration_batch)
+            latest = self.bss.request("GET", f"{MIGRATION}/batches", params={"limit": 1})
+            return self._project(latest, _migration_batches)
+        if name == "list_migration_rejects":
+            batch_id = arguments.get("batch_id")
+            path = f"{MIGRATION}/batches/{batch_id}/rejects" if batch_id else f"{MIGRATION}/rejects"
+            return self._project(self.bss.request("GET", path), _migration_rejects)
         raise ValueError(f"Unknown tool {name}")
 
     def _project(self, response, projector):
@@ -536,6 +569,56 @@ class ToolExecutor:
 
 def _identity(body):
     return body
+
+
+def _migration_batches(body):
+    rows = body if isinstance(body, list) else []
+    return [
+        {
+            "id": row.get("id"),
+            "batchCode": row.get("batchCode"),
+            "status": row.get("status"),
+            "balanceMatched": row.get("balanceMatched"),
+            "rejected": (row.get("summary") or {}).get("rejected"),
+            "byReason": (row.get("summary") or {}).get("byReason"),
+        }
+        for row in rows
+        if isinstance(row, dict)
+    ]
+
+
+def _migration_batch(body):
+    if not isinstance(body, dict):
+        return body
+    summary = body.get("summary") or {}
+    return {
+        "id": body.get("id"),
+        "batchCode": body.get("batchCode"),
+        "status": body.get("status"),
+        "balanceMatched": body.get("balanceMatched"),
+        "sourceBalance": (summary.get("source") or {}).get("balanceTotal"),
+        "targetBalance": (summary.get("target") or {}).get("balanceTotal"),
+        "rejected": summary.get("rejected"),
+        "byReason": summary.get("byReason"),
+        "mappingSuggestions": summary.get("mappingSuggestions") or body.get("mappingSuggestions") or [],
+    }
+
+
+def _migration_rejects(body):
+    if not isinstance(body, dict):
+        return body
+    rejects = body.get("rejects") or []
+    return {
+        "batchId": body.get("batchId"),
+        "batchCode": body.get("batchCode"),
+        "status": body.get("status"),
+        "byReason": body.get("byReason") or {},
+        "rejects": [
+            {"sourceKey": row.get("sourceKey"), "recordKind": row.get("recordKind"), "reason": row.get("reason")}
+            for row in rejects[:30]
+            if isinstance(row, dict)
+        ],
+    }
 
 
 def _bills(body):

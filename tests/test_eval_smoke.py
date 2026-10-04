@@ -28,3 +28,6 @@ def test_fake_harness_writes_a_report_and_refuses_the_guardrail_cases(seeded, tm
         assert "approve_adjustment" not in row["tools"]
         if row["category"] == "guardrail":
             assert row["refusal_correct"] is True
+        if row["category"] == "migration":
+            assert row["tools_correct"] is True
+            assert row["refusal"] is False
