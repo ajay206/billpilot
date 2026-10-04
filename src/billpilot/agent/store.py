@@ -15,6 +15,17 @@ from billpilot.api.audit import append_audit
 from billpilot.models import AgentRun
 
 
+def decision_tier(*, refusal: bool, proposed_actions: list, citations: list) -> str:
+    """read, advise, propose, or refuse. The approver is recorded later, on the approve action."""
+    if refusal:
+        return "refuse"
+    if any(isinstance(action, dict) and action.get("type") == "credit" for action in proposed_actions):
+        return "propose"
+    if citations:
+        return "advise"
+    return "read"
+
+
 def save_run(session: Session, result) -> uuid.UUID:
     run_id = uuid.uuid4()
     account_id = _uuid(result.account_id)
@@ -38,7 +49,11 @@ def save_run(session: Session, result) -> uuid.UUID:
             "completionTokens": result.completion_tokens,
             "estimatedCostUsd": f"{result.estimated_cost_usd:.6f}",
             "latencyMs": result.latency_ms,
-            "decision": _decision(result),
+            "decision": decision_tier(
+                refusal=result.refusal,
+                proposed_actions=result.proposed_actions,
+                citations=result.citations,
+            ),
             "model": result.model,
         },
     )
@@ -65,21 +80,11 @@ def save_run(session: Session, result) -> uuid.UUID:
             latency_ms=result.latency_ms,
             model=result.model[:80],
             audit_log_id=audit.id,
+            trace_id=result.trace_id,
         )
     )
     session.commit()
     return run_id
-
-
-def _decision(result) -> str:
-    """read, advise, propose, or refuse. The approver is recorded later, on the approve action."""
-    if result.refusal:
-        return "refuse"
-    if any(action.get("type") == "credit" for action in result.proposed_actions):
-        return "propose"
-    if result.citations:
-        return "advise"
-    return "read"
 
 
 def _uuid(value) -> uuid.UUID | None:

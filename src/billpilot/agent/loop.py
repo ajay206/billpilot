@@ -24,9 +24,9 @@ from billpilot.agent.guardrails import (
 )
 from billpilot.agent.model import Message
 from billpilot.agent.prompts import system_prompt
-from billpilot.agent.store import save_run
+from billpilot.agent.store import decision_tier, save_run
 from billpilot.agent.tools import ACCOUNTS, BssClient, ToolExecutor, tools_for
-from billpilot.agent.tracing import trace_run
+from billpilot.agent.tracing import build_turn_trace
 from billpilot.config import Settings
 
 
@@ -51,6 +51,7 @@ class AgentResult:
     user_message: str
     system_prompt: str
     account_id: str | None
+    trace_id: str | None = None
     retrieved: list[dict] = field(default_factory=list)
 
 
@@ -70,8 +71,21 @@ def run_agent(
     started = time.perf_counter()
     prompt = system_prompt(persona, account_id, customer_number)
     secrets = [settings.api_key_customer, settings.api_key_csr, settings.api_key_ops, settings.llm_api_key]
+    tracer = build_turn_trace(
+        settings,
+        persona=persona,
+        actor_id=actor_id,
+        request_id=request_id,
+        message=redact_secrets(message, secrets),
+    )
 
     reason = screen_input(message, persona, customer_number)
+    tracer.span(
+        "guardrails.input",
+        as_type="guardrail",
+        input={"persona": persona},
+        output={"reason": reason or "pass"},
+    )
     if reason:
         return _finish(
             message=message,
@@ -89,6 +103,7 @@ def run_agent(
             grounded=True,
             model=getattr(model, "name", settings.llm_model),
             secrets=secrets,
+            tracer=tracer,
         )
 
     pinned = account_id
@@ -114,6 +129,7 @@ def run_agent(
                 grounded=True,
                 model=getattr(model, "name", settings.llm_model),
                 secrets=secrets,
+                tracer=tracer,
             )
         if account_id and account_id not in allowed:
             return _finish(
@@ -132,6 +148,7 @@ def run_agent(
                 grounded=True,
                 model=getattr(model, "name", settings.llm_model),
                 secrets=secrets,
+                tracer=tracer,
             )
         if not allowed:
             return _finish(
@@ -150,6 +167,7 @@ def run_agent(
                 grounded=True,
                 model=getattr(model, "name", settings.llm_model),
                 secrets=secrets,
+                tracer=tracer,
             )
         pinned = account_id or next(iter(allowed))
         prompt = system_prompt(persona, pinned, customer_number)
@@ -187,6 +205,19 @@ def run_agent(
         model_name = completion.model or model_name
         prompt_tokens += completion.prompt_tokens
         completion_tokens += completion.completion_tokens
+        call_cost = estimate_cost(model_name, completion.prompt_tokens, completion.completion_tokens, settings)
+        tracer.generation(
+            "model.call",
+            model=model_name,
+            input={"messages": len(messages), "tools": len(specs)},
+            output={
+                "tool_calls": [call.name for call in completion.tool_calls],
+                "text": (completion.content or "")[:400],
+            },
+            prompt_tokens=completion.prompt_tokens,
+            completion_tokens=completion.completion_tokens,
+            cost=call_cost,
+        )
         if not completion.tool_calls:
             answer = completion.content or "I don't have a grounded answer for that."
             break
@@ -206,6 +237,24 @@ def run_agent(
             traces.append(trace)
             evidence.append(trace.model_text)
             retrieved.extend(trace.citations)
+            tracer.span(
+                f"tool.{trace.name}",
+                as_type="tool",
+                input=trace.arguments,
+                output={"ok": trace.ok, "status": trace.status},
+            )
+            if trace.name == "search_knowledge":
+                tracer.span(
+                    "retrieval",
+                    as_type="retriever",
+                    input=trace.arguments,
+                    output={
+                        "doc_ids": sorted({item.get("doc") for item in trace.citations if item.get("doc")}),
+                        "sections": [
+                            {"doc": item.get("doc"), "section": item.get("section")} for item in trace.citations
+                        ],
+                    },
+                )
             if trace.proposed:
                 proposed.append(trace.proposed)
             messages.append(Message(role="tool", content=trace.model_text, tool_call_id=call.id))
@@ -216,6 +265,15 @@ def run_agent(
     citations: list[dict] = []
     if not refusal:
         answer, grounded, citations = screen_output(answer, evidence, retrieved, message)
+        tracer.span(
+            "output.checks",
+            as_type="guardrail",
+            output={
+                "grounded": grounded,
+                "citations": citations,
+                "proposal_error": proposal_error(proposed),
+            },
+        )
         if proposal_error(proposed):
             answer = (
                 "A credit proposal has to stay pending, with an amount taken from the bill, "
@@ -250,6 +308,7 @@ def run_agent(
         retrieved=retrieved,
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
+        tracer=tracer,
     )
 
 
@@ -276,6 +335,7 @@ def _finish(
     retrieved=None,
     prompt_tokens=0,
     completion_tokens=0,
+    tracer=None,
 ) -> AgentResult:
     del secrets
     latency_ms = int((time.perf_counter() - started) * 1000)
@@ -310,8 +370,19 @@ def _finish(
         user_message=message,
         system_prompt=prompt,
         account_id=account_id,
+        trace_id=None if tracer is None else tracer.trace_id,
         retrieved=list(retrieved or []),
     )
-    result.run_id = str(save_run(session, result))
-    trace_run(settings, result)
+    tier = decision_tier(
+        refusal=result.refusal,
+        proposed_actions=result.proposed_actions,
+        citations=result.citations,
+    )
+    if tracer is not None:
+        tracer.span("decision", output={"decision": tier, "refusal_reason": refusal_reason})
+    try:
+        result.run_id = str(save_run(session, result))
+    finally:
+        if tracer is not None:
+            tracer.finish(output=answer, decision=tier, metadata={"run_id": result.run_id})
     return result

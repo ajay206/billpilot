@@ -1,0 +1,49 @@
+# Free-tier blueprint. Follow docs/deploy.md. Do not put a real model key in this file.
+services:
+  - type: web
+    name: billpilot
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: API_KEY_CUSTOMER
+        value: dev-customer-key
+      - key: API_KEY_CSR
+        value: dev-csr-key
+      - key: API_KEY_OPS
+        value: dev-ops-key
+      - key: CUSTOMER_NUMBER
+        value: CUST-000001
+      - key: CSR_CODE
+        value: CSR-A
+      - key: LLM_BACKEND
+        value: fake
+      - key: LLM_BASE_URL
+        value: https://api.openai.com/v1
+      - key: LLM_MODEL
+        value: gpt-4o-mini
+      - key: LLM_API_KEY
+        sync: false
+      - key: EMBEDDING_BACKEND
+        value: hash
+      - key: SEED
+        value: "42"
+      - key: CUSTOMER_COUNT
+        value: "48"
+      - key: MONTHS
+        value: "2"
+      # One of each planted fault, so the first boot finishes on a free instance.
+      - key: ANOMALY_COUNTS
+        value: '{"double_charge":1,"roaming_spike":1,"wrong_rate":1,"missed_discount":1,"charge_after_cancellation":1,"vas_not_opted_in":1,"payment_not_recorded":1,"payment_not_posted":1,"unbilled_usage":1,"duplicate_usage":1,"sim_swap":1,"barred_after_paying":1,"treated_during_open_dispute":1,"payment_not_ending_treatment":1,"promise_to_pay_ignored":1,"exempt_account_treated":1,"addon_never_activated":1,"allowance_not_reset":1,"overlapping_packs_double_counted":1,"overlapping_packs_dropped":1,"promo_ended_early":1,"feature_active_after_cancellation":1,"overage_on_covered_usage":1}'
+      - key: GROUND_TRUTH_PATH
+        value: /tmp/ground_truth.json
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        sync: false

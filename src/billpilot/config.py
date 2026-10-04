@@ -2,13 +2,33 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_database_url(url: str) -> str:
+    """Accept a Neon-style URL and the SQLAlchemy psycopg URL.
+
+    Hosted Postgres consoles hand out postgresql:// or postgres://. The engine
+    in this process is psycopg 3, which wants the postgresql+psycopg scheme.
+    Query parameters such as sslmode are left as they are.
+    """
+    if url.startswith("postgres://"):
+        url = "postgresql://" + url[len("postgres://") :]
+    if url.startswith("postgresql://"):
+        url = "postgresql+psycopg://" + url[len("postgresql://") :]
+    return url
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     database_url: str = "postgresql+psycopg://billpilot:billpilot@localhost:5432/billpilot"
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _database_driver(cls, value: str) -> str:
+        return normalize_database_url(value)
 
     api_key_customer: str = "dev-customer-key"
     api_key_csr: str = "dev-csr-key"
@@ -50,10 +70,10 @@ class Settings(BaseSettings):
     agent_max_tokens: int = 16000
     agent_tool_result_chars: int = 6000
 
-    langfuse_enabled: bool = False
+    # Tracing is on only when all three are non-empty. See agent/tracing.py.
     langfuse_public_key: str = ""
     langfuse_secret_key: str = ""
-    langfuse_host: str = "https://cloud.langfuse.com"
+    langfuse_host: str = ""
 
 
 @lru_cache

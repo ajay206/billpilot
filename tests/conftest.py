@@ -16,7 +16,9 @@ os.environ["RATE_LIMIT_CSR_PER_MINUTE"] = "10000"
 os.environ["RATE_LIMIT_OPS_PER_MINUTE"] = "10000"
 os.environ["LLM_BACKEND"] = "fake"
 os.environ["EMBEDDING_BACKEND"] = "hash"
-os.environ["LANGFUSE_ENABLED"] = "false"
+os.environ["LANGFUSE_PUBLIC_KEY"] = ""
+os.environ["LANGFUSE_SECRET_KEY"] = ""
+os.environ["LANGFUSE_HOST"] = ""
 os.environ.setdefault("LLM_API_KEY", "")
 
 from collections.abc import Iterator

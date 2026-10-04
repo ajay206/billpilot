@@ -61,6 +61,38 @@ def config_from_env() -> GeneratorConfig:
     )
 
 
+def ledger_customer_count(url: str) -> int | None:
+    """How many customers are loaded. None means the table is not there yet."""
+    engine = create_engine(url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            exists = connection.execute(text("SELECT to_regclass('public.customers')")).scalar()
+            if exists is None:
+                return None
+            return int(connection.execute(text("SELECT COUNT(*) FROM customers")).scalar() or 0)
+    finally:
+        engine.dispose()
+
+
+def seed_if_empty() -> None:
+    """Migrate must already have run. A populated ledger is left alone.
+
+    The hosted container has no separate seed job, so the first boot fills an
+    empty database. A later boot, and `docker compose up` after the seed
+    service, finds the rows and returns.
+    """
+    settings = get_settings()
+    _wait_for_database(settings.database_url)
+    count = ledger_customer_count(settings.database_url)
+    if count is None:
+        raise SystemExit("The customers table is missing. Run `billpilot migrate` first.")
+    if count:
+        print(f"Ledger already has {count} customers. Skipping seed.")
+        return
+    print("Ledger is empty. Seeding synthetic customers.")
+    seed(config_from_env(), Path(settings.ground_truth_path))
+
+
 def seed(config: GeneratorConfig, output: Path) -> None:
     settings = get_settings()
     _wait_for_database(settings.database_url)
@@ -162,6 +194,7 @@ def main(argv: list[str] | None = None) -> None:
     both.add_argument("--months", type=int)
     both.add_argument("--seed", type=int)
     both.add_argument("--output")
+    commands.add_parser("seed-if-empty")
     ask = commands.add_parser("ask", help="Ask the copilot. The mock BSS must already be running.")
     ask.add_argument("--persona", required=True, choices=("customer", "csr", "ops"))
     ask.add_argument("--account", help="Billing account UUID. Required for a CSR or ops investigation.")
@@ -180,6 +213,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "ask":
         _ask(args)
+        return
+    if args.command == "seed-if-empty":
+        seed_if_empty()
         return
     if args.command == "knowledge":
         _reindex_knowledge()

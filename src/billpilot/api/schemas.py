@@ -244,6 +244,7 @@ class BillingAccount(Resource):
     """
 
     name: str
+    customerNumber: str
     state: str
     treatment: TreatmentState | None = None
     exemption: ExemptionState | None = None

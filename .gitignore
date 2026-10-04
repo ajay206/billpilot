@@ -14,3 +14,5 @@ htmlcov/
 data/*.json
 reports/
 .python-version
+web/node_modules/
+web/dist/

@@ -27,7 +27,19 @@ class Chunk:
 
 
 def knowledge_root() -> Path:
-    return Path(__file__).resolve().parents[3] / "docs" / "knowledge"
+    """The markdown corpus.
+
+    A source checkout keeps `docs/knowledge` three levels above this file.
+    An installed package (the Docker image) does not, so the process working
+    directory is the next place to look. `WORKDIR` in the image is `/app`.
+    """
+    checkout = Path(__file__).resolve().parents[3] / "docs" / "knowledge"
+    if checkout.is_dir():
+        return checkout
+    working = Path.cwd() / "docs" / "knowledge"
+    if working.is_dir():
+        return working
+    return checkout
 
 
 def load_chunks(root: Path | None = None) -> list[Chunk]:

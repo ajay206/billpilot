@@ -430,3 +430,5 @@ class AgentRun(Base):
     latency_ms: Mapped[int] = mapped_column(Integer)
     model: Mapped[str] = mapped_column(String(80))
     audit_log_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("audit_log.id"))
+    # Langfuse trace id for this turn. Null when tracing is off.
+    trace_id: Mapped[str | None] = mapped_column(String(64))
