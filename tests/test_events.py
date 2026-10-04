@@ -179,7 +179,10 @@ def test_session_customer_and_csr_are_forbidden_on_ops_routes(seeded):
                 assert response.status_code == 403, (username, path, response.text)
                 assert "cannot perform" in response.json()["message"]
             client.post("/auth/logout", headers=csrf)
-        meera = client.post("/auth/login", json={"username": "meera.kapoor", "password": _demo_password("meera.kapoor")})
+        meera = client.post(
+            "/auth/login",
+            json={"username": "meera.kapoor", "password": _demo_password("meera.kapoor")},
+        )
         assert meera.status_code == 200, meera.text
         assert client.get("/ops/failures").status_code == 200
 

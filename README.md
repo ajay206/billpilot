@@ -359,7 +359,38 @@ The consumer opens incidents for failed bill runs, failed payments and autopay, 
 
 Reports (billing, collections and treatment, disputes and credits, payments, agent usage and cost) are SQL aggregates for the latest invoice day and that month. `billpilot reports generate` or **Generate reports** on `/ops` writes them. CSV is `GET /ops/reports/{id}/csv` and a download button that builds the file from the JSON.
 
-Fraud and revenue checks are SQL. They do not read the answer key. A finding matches a planted anomaly when the account and the anomaly type are the same. Controls are not labels. Precision is matched findings divided by all findings. Recall is matched labels divided by labelled anomalies. On the small synthetic seed (48 customers, seed 42, one of each planted anomaly, plus the healthy controls) the measured precision is **1.0** and the measured recall is **1.0** (23 findings, 23 labelled anomalies, no false positives). Those numbers come from `tests/test_detectors.py` / `billpilot assurance score` against that seed's `ground_truth`. They are a measurement of the SQL checks, not a language-model score. `usage_without_charge` is a real check and finds no row on this generator, so it is not in the labelled set. Ops can open a case or, when the evidence has a positive pre-tax amount, propose a credit. The credit stays `pending_approval`. The ops actor that proposed it cannot approve it.
+Fraud and revenue checks are SQL. They do not read the answer key. A finding matches a planted anomaly when the account and the anomaly type are the same. Controls are not labels. Precision is matched findings divided by all findings. Recall is matched labels divided by labelled anomalies. The detectors and the planted anomalies come from the same synthetic generator, so these numbers show that the detectors match their spec. They are not a measure of real-world accuracy, and they are not a language-model score.
+
+CI runs the small seed only (48 customers, seed 42, one of each planted anomaly, plus the healthy controls): precision **1.0**, recall **1.0**, 23 findings, 23 labelled anomalies. That check is `tests/test_detectors.py`. The default seed is the one to quote: 500 customers, 6 months, seed 42, 92 planted anomalies. `billpilot assurance score --ground-truth data/ground_truth.json` on that database measured precision **0.9583** (92 of 96 findings matched) and recall **1.0** (92 of 92 labelled anomalies). Four findings are false positives. `barred_after_paying` and `payment_not_ending_treatment` each flagged `CUST-000105` and `CUST-000109`, and neither account is a planted example of those anomalies. Nothing planted was missed. The SQL was not changed to drop those four rows. `usage_without_charge` is a real check and finds no row on this generator, so it has no labelled rows and no findings. Scoring the loaded 500-customer database is a separate command. CI does not load that seed.
+
+| Detector | Anomaly type | Labelled | Findings | True positives | False positives | Missed | Precision | Recall |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `duplicate_charge` | `double_charge` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `roaming_spike` | `roaming_spike` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `sim_swap_premium` | `sim_swap` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `unbilled_usage` | `unbilled_usage` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `usage_without_charge` | `usage_without_charge` | 0 | 0 | 0 | 0 | 0 | — | — |
+| `duplicate_usage` | `duplicate_usage` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `tariff_mismatch` | `wrong_rate` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `missed_discount` | `missed_discount` | 6 | 6 | 6 | 0 | 0 | 1.0 | 1.0 |
+| `charge_after_cancel` | `charge_after_cancellation` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `vas_not_opted_in` | `vas_not_opted_in` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `payment_not_recorded` | `payment_not_recorded` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `payment_not_posted` | `payment_not_posted` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `barred_after_paying` | `barred_after_paying` | 3 | 5 | 3 | 2 | 0 | 0.6 | 1.0 |
+| `treated_during_dispute` | `treated_during_open_dispute` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `payment_not_ending_treatment` | `payment_not_ending_treatment` | 3 | 5 | 3 | 2 | 0 | 0.6 | 1.0 |
+| `promise_ignored` | `promise_to_pay_ignored` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `exempt_treated` | `exempt_account_treated` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `addon_never_activated` | `addon_never_activated` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `allowance_not_reset` | `allowance_not_reset` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+| `packs_double_counted` | `overlapping_packs_double_counted` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `packs_dropped` | `overlapping_packs_dropped` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `promo_ended_early` | `promo_ended_early` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `entitlement_without_charge` | `feature_active_after_cancellation` | 3 | 3 | 3 | 0 | 0 | 1.0 | 1.0 |
+| `overage_on_covered` | `overage_on_covered_usage` | 4 | 4 | 4 | 0 | 0 | 1.0 | 1.0 |
+
+Ops can open a case or, when the evidence has a positive pre-tax amount, propose a credit. The credit stays `pending_approval`. The ops actor that proposed it cannot approve it. A session signed in as `meera.kapoor` is actor `user:meera.kapoor`, so that same sign-in cannot approve the credit either.
 
 `POST /agent/troubleshoot` is CSR-only. The CSR pastes an error or a symptom. The agent returns numbered steps with a runbook citation, reads the account with the existing tools, and lists related incidents. The fake model covers this in CI. No hosted-model eval score is claimed for it.
 
