@@ -67,6 +67,7 @@ def run_agent(
     settings: Settings,
     account_id: str | None = None,
     customer_number: str | None = None,
+    flow: str = "chat",
 ) -> AgentResult:
     started = time.perf_counter()
     prompt = system_prompt(persona, account_id, customer_number)
@@ -83,7 +84,10 @@ def run_agent(
         actor_id=actor_id,
         request_id=request_id,
         message=redact_secrets(message, secrets),
+        name=f"billpilot.{flow}",
     )
+    if flow == "troubleshoot":
+        tracer.span("troubleshoot.start", input={"accountId": account_id, "persona": persona})
 
     reason = screen_input(message, persona, customer_number)
     tracer.span(

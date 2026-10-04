@@ -117,8 +117,8 @@ describe("sign-in and role routing", () => {
     expect(screen.getByRole("button", { name: "Account 360" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Overview" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approval queue" })).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /csr troubleshooting ai, phase 4/i })).toBeInTheDocument();
-    expect(screen.getByText(/search for an account/i)).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /csr troubleshooting/i })).toBeInTheDocument();
+    expect(screen.getByText(/select an account to run the steps/i)).toBeInTheDocument();
   });
 
   it("refuses a customer who opens the ops path", async () => {
@@ -134,7 +134,7 @@ describe("sign-in and role routing", () => {
     expect(screen.queryByRole("button", { name: "Approval queue" })).not.toBeInTheDocument();
   });
 
-  it("opens the ops control tower and keeps phase 4 placeholders", async () => {
+  it("opens the ops control tower with the operations panels", async () => {
     const user = userEvent.setup();
     installFetch((url) => {
       if (url.endsWith("/auth/me")) return ok(session("ops", "Meera Kapoor"));
@@ -147,8 +147,9 @@ describe("sign-in and role routing", () => {
     render(<App />);
     expect(await screen.findByRole("heading", { name: "Control tower" })).toBeInTheDocument();
     expect(screen.getByText(/no customer chat/i)).toBeInTheDocument();
-    expect(await screen.findByRole("region", { name: /failure dashboard, phase 4/i })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: /reports, phase 4/i })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: /failure dashboard/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /^reports$/i })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: /fraud and revenue findings/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Overview" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "Unbars" }));
     expect(screen.getByText(/no unbar proposals/i)).toBeInTheDocument();

@@ -8,13 +8,14 @@ from typing import Protocol
 
 
 class EventPublisher(Protocol):
-    def publish(self, topic: str, payload: dict) -> None: ...
+    def publish(self, topic: str, payload: dict, *, session=None) -> str | None: ...
 
 
 class NullPublisher:
-    """Used until the operations phase adds a broker."""
+    """Drops events. Tests that do not care about the pipeline still use this."""
 
-    def publish(self, topic: str, payload: dict) -> None:
+    def publish(self, topic: str, payload: dict, *, session=None) -> None:
+        del topic, payload, session
         return None
 
 
@@ -24,5 +25,7 @@ class ListPublisher:
     def __init__(self) -> None:
         self.events: list[tuple[str, dict]] = []
 
-    def publish(self, topic: str, payload: dict) -> None:
+    def publish(self, topic: str, payload: dict, *, session=None) -> str | None:
+        del session
         self.events.append((topic, payload))
+        return None

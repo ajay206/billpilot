@@ -33,6 +33,7 @@ def build_cases(ground_truth: dict) -> list[Case]:
     cases.extend(_entitlements(ground_truth))
     cases.extend(_payments(ground_truth))
     cases.extend(_plans(ground_truth))
+    cases.extend(_troubleshoot(ground_truth))
     if not 50 <= len(cases) <= 100:
         raise RuntimeError(f"Expected 50 to 100 eval cases, found {len(cases)}.")
     return cases
@@ -431,3 +432,61 @@ def _plans(ground_truth: dict) -> list[Case]:
             forbidden_tools=["approve_adjustment", "propose_adjustment"],
         ),
     ]
+
+
+def _troubleshoot(ground_truth: dict) -> list[Case]:
+    """CSR pastes a symptom. The fake model must cite the matching runbook and read the account."""
+    forbidden = ["approve_adjustment", "propose_adjustment"]
+    specs = [
+        (
+            "troubleshoot-payment",
+            "Troubleshooting: a payment failed with token PAYMENT_DECLINED. Follow the failed payment runbook.",
+            "payment_not_posted",
+            ["search_knowledge", "list_payments", "list_payment_attempts", "list_incidents"],
+            "Failed payment",
+        ),
+        (
+            "troubleshoot-unbar",
+            "Troubleshooting: the unbar was not applied after payment. Do not unbar the line.",
+            "barred_after_paying",
+            ["search_knowledge", "get_treatment", "list_payments", "list_incidents"],
+            "Unbar not applied",
+        ),
+        (
+            "troubleshoot-roaming",
+            "Troubleshooting: roaming not working after a pack was added. Follow the roaming runbook.",
+            "roaming_spike",
+            ["search_knowledge", "list_products", "list_balances", "list_incidents"],
+            "Roaming not working",
+        ),
+        (
+            "troubleshoot-bill",
+            "Troubleshooting: the bill not generated for this cycle. Follow the bill runbook.",
+            "unbilled_usage",
+            ["search_knowledge", "list_bills", "list_incidents"],
+            "Bill not generated",
+        ),
+        (
+            "troubleshoot-entitlement",
+            "Troubleshooting: entitlement missing on the subscription. Follow the entitlement runbook.",
+            "addon_never_activated",
+            ["search_knowledge", "list_products", "list_balances", "list_incidents"],
+            "Entitlement missing",
+        ),
+    ]
+    cases = []
+    for name, message, kind, tools, section in specs:
+        row = _row(ground_truth, kind)
+        cases.append(
+            Case(
+                id=name,
+                category="csr_runbook",
+                persona="csr",
+                message=message,
+                account_id=row["account_id"],
+                required_tools=tools,
+                forbidden_tools=forbidden,
+                expected_citations=_cite("csr-runbooks.md", section),
+            )
+        )
+    return cases

@@ -72,7 +72,7 @@ The banner should say **Demo mode** before you start.
 2. Walk the tabs: Bills, Lines, Usage, Payments, Treatment, Tickets, Disputes. Disputes shows the dispute from the customer step, with status `open`.
 3. In the copilot box, ask: `Explain the latest bill line by line against the tariff.`
 4. Open the **tool calls** control under the answer. You should see the bill, the lines, and a policy search. Click a citation chip and read the section.
-5. The **CSR troubleshooting AI** panel says Phase 4. It does not take an error paste yet.
+5. **CSR troubleshooting** sits under the account tabs. With the account selected, leave the sample payment text and click **Run troubleshooting**. The answer is numbered steps and cites `csr-runbooks.md`. Related incidents are listed under the answer. The assistant does not post a payment or propose a credit from that panel.
 
 `CUST-000001` is the healthy demo customer. The copilot proposes a credit only when it finds a duplicate line, and it will not auto-credit a roaming spike. On the 500-customer seed, search `CUST-000003` (even index, so CSR-A can see it) and ask: `I think this bill was charged twice. Propose a credit. Do not apply it.` The card says **Pending approval**. On the 48-customer seed the only double charge is `CUST-000002`, which belongs to CSR-B. To watch the copilot propose that one, set `CSR_CODE=CSR-B` in `.env`, run `docker compose up -d --force-recreate api`, and search `CUST-000002` with the same question. Set `CSR_CODE` back to `CSR-A` when you are done.
 
@@ -92,7 +92,9 @@ curl -s -X POST http://localhost:8000/tmf-api/customerBillManagement/v4/billAdju
 4. Open **Unbars** and **Plan changes**. Both say there is no proposal and no endpoint. Do not expect a button there.
 5. Open **Agent runs**. It lists the turns you just made, with decision, token total, estimated cost, latency, and trace id. The trace id is a dash until Langfuse keys are set.
 6. Open **Audit log**. It lists the chat turns and the approval. The request column is the first characters of the request id.
-7. **Failure dashboard** and **Reports** are marked Phase 4, including fraud and revenue checks.
+7. Back on **Approval queue**, **Failure dashboard** refreshes on its own. Click **Simulate failures**. Incidents, a stuck run, a dead letter, and per-topic lag appear. **Replay** on a dead letter is safe to click twice. **Open account** loads that billing account.
+8. **Reports**. Click **Generate reports**. Pick billing, collections, disputes, payments, or agent. **Download CSV** saves that snapshot. The figures are the SQL result for the latest invoice day and month.
+9. **Fraud and revenue findings**. Click **Run checks**. Each row shows the evidence JSON. **Open case** creates a ticket and does not move money. **Propose adjustment** appears only when the evidence has a positive pre-tax amount. The credit stays pending. The signed-in ops user who proposed it cannot approve it. A different person has to use the approval endpoint.
 
 ### Switch from the fake model to a real API key
 
@@ -205,7 +207,7 @@ LANGFUSE_HOST=https://cloud.langfuse.com
 
 4. Redeploy. `GET /health` then includes `"tracing": true`.
 
-Each copilot turn is one trace named `billpilot.chat`. Inside it: a guardrail span, a generation for each model call (tokens and estimated cost), a tool span per call, a retriever span whose output lists the cited doc ids, an output-check span, and a decision span (`read`, `advise`, `propose`, or `refuse`). The trace id is stored on `agent_runs.trace_id` and shown in the ops dashboard.
+Each copilot turn is one trace named `billpilot.chat`. A CSR troubleshooting turn is `billpilot.troubleshoot` and adds a `troubleshoot.start` span. Inside either trace: a guardrail span, a generation for each model call (tokens and estimated cost), a tool span per call, a retriever span whose output lists the cited doc ids, an output-check span, and a decision span (`read`, `advise`, `propose`, or `refuse`). The trace id is stored on `agent_runs.trace_id` and shown in the ops dashboard.
 
 If Langfuse is down, or a key is wrong, the chat still answers. The failure is logged and swallowed. Leave any of the three variables empty and tracing is a no-op. That is what CI and `docker compose up` do.
 
@@ -213,10 +215,31 @@ A turn with several tool calls is several billable units (the trace plus each ob
 
 ## 4. Check that it works
 
-1. `https://<service>.onrender.com/health` returns `status: ok` and `demoMode: true` until you set a model key.
+1. `https://<service>.onrender.com/health` returns `status: ok`, `demoMode: true` until you set a model key, and `eventBackend: postgres`.
 2. The login page lists the six demo accounts. Priya Sharma sees only `CUST-000001` and can answer a roaming question with a citation you can open.
-3. Ananya Rao can search that customer and the copilot shows tool calls after a turn. Vikram Nair cannot open Priya's account.
-4. Meera Kapoor sees the approval queue, recent runs, and the audit log. Approving a credit asks for confirmation and uses the existing endpoint. A second approve returns 409 and the bill does not change again. A customer who opens `/ops` is refused.
+3. Ananya Rao can search that customer, the copilot shows tool calls after a turn, and **CSR troubleshooting** returns numbered steps for that account. Vikram Nair cannot open Priya's account.
+4. Meera Kapoor sees the approval queue, the failure dashboard, reports, fraud findings, recent runs, and the audit log. Approving a credit asks for confirmation and uses the existing endpoint. A second approve returns 409 and the bill does not change again. A customer who opens `/ops` is refused.
 5. After Langfuse is configured, the ops run row shows a trace id. The same id is in the Langfuse project.
 
-Local `docker compose up` is the same image shape: Postgres in Compose, the API serving the UI on port 8000, seed on first boot of an empty database. See the README quickstart.
+Local `docker compose up` is the same image shape, plus a single-node Redpanda. The API serving the UI is on port 8000. The seed runs on first boot of an empty database. Compose sets `EVENT_BACKEND=redpanda`. See the README quickstart.
+
+## Updating an existing Render service
+
+Ajay's service is already on the free web plan with Neon. This phase does not add a second service and does not add Kafka. On the existing service:
+
+1. Set these environment variables in the Render dashboard (or sync the blueprint so `render.yaml` applies them):
+
+```text
+EVENT_BACKEND=postgres
+EVENT_CONSUMER_ENABLED=true
+EVENT_POLL_SECONDS=2
+EVENT_MAX_RETRIES=3
+STUCK_BILL_RUN_SECONDS=900
+REPORT_SCHEDULE_SECONDS=21600
+```
+
+2. Do not set `REDPANDA_BOOTSTRAP`. There is no broker on Render. If `EVENT_BACKEND` is left unset, the code default is still `postgres`.
+3. `SESSION_SECRET` comes from the sign-in change (decision 0024). Generate a long random value in the Render dashboard and do not commit it. Boot reads the role from `users`. Leave the secret unset and cookie sign-in fails closed.
+4. Redeploy the service from this revision. The container runs Alembic on boot through `005_ops` (after `004_users`: outbox, dead letters, bill runs, findings, report snapshots). The 48-customer seed is unchanged: if `customers` already has rows, boot does not re-seed. Demo users are inserted when they are missing, even if customers already exist.
+5. Confirm `GET /health` includes `"eventBackend": "postgres"`. The failure consumer is a short database poll inside the same process. It is not a second instance and it does not raise the memory plan above 512 MB.
+6. Sign in as `meera.kapoor` and click **Simulate failures**, **Generate reports**, and **Run checks**. Those writes stay in Neon and send the session cookie plus the CSRF token. Redpanda is only for `docker compose up` on a laptop.

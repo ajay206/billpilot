@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 
 import type { Api } from "../api";
 import { qs } from "../api";
-import { AnswerText, DataTable, Placeholder, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
+import { AnswerText, DataTable, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
+import { TroubleshootPanel } from "../features/csr/troubleshoot/TroubleshootPanel";
 import { characteristic, inr, partyName, when, whenTime } from "../format";
 import type {
   Account,
@@ -327,9 +328,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
             ) : null}
           </>
         ) : null}
-        <Placeholder phase="Phase 4" title="CSR troubleshooting AI">
-          Paste an error and get numbered steps from the runbooks. That assistant is not in this build. The copilot beside this panel already cites the same runbook pages.
-        </Placeholder>
+        <TroubleshootPanel api={api} accountId={account?.id ?? null} />
       </section>
       <section className="panel copilot" aria-label="CSR copilot">
         <p className="eyebrow">Copilot</p>

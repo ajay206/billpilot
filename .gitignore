@@ -12,7 +12,7 @@ build/
 .coverage
 htmlcov/
 data/*.json
-reports/
+/reports/
 .python-version
 web/node_modules/
 web/dist/

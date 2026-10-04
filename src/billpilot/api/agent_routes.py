@@ -19,7 +19,7 @@ from billpilot.agent.tools import BssClient, ThreadedASGITransport
 from billpilot.api.access import require_account
 from billpilot.api.security import Principal, get_principal, require_roles
 from billpilot.db import get_session
-from billpilot.models import AgentRun, KnowledgeChunk
+from billpilot.models import AgentRun, Incident, KnowledgeChunk
 
 router = APIRouter()
 
@@ -104,6 +104,81 @@ def agent_chat(
         latencyMs=result.latency_ms,
         model=result.model,
         traceId=result.trace_id,
+    )
+
+
+class TroubleshootResponse(AgentChatResponse):
+    relatedIncidents: list[dict]
+
+
+@router.post("/agent/troubleshoot", response_model=TroubleshootResponse, tags=["Agent"])
+def agent_troubleshoot(
+    body: AgentChatRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_roles("csr")),
+):
+    """Paste an error or a symptom. Numbered runbook steps, account reads, related incidents."""
+    if body.accountId is None:
+        raise HTTPException(status_code=422, detail="accountId is required.")
+    require_account(session, principal, body.accountId)
+    settings = request.app.state.settings
+    model = getattr(request.app.state, "chat_model", None) or build_model(settings)
+    api_key = request.headers.get("x-api-key") or ""
+    extra: dict[str, str] = {}
+    if not api_key:
+        cookie = request.headers.get("cookie")
+        if cookie:
+            extra["Cookie"] = cookie
+        csrf = request.headers.get("x-csrf-token")
+        if csrf:
+            extra["X-CSRF-Token"] = csrf
+    transport = ThreadedASGITransport(request.app)
+    bss = BssClient("http://billpilot.internal", api_key, transport=transport, extra_headers=extra)
+    try:
+        result = run_agent(
+            message=body.message,
+            persona=principal.role,
+            actor_id=principal.actor_id,
+            bss=bss,
+            model=model,
+            session=session,
+            request_id=request.state.request_id,
+            settings=settings,
+            account_id=str(body.accountId),
+            customer_number=principal.customer_number,
+            flow="troubleshoot",
+        )
+    finally:
+        bss.close()
+    incidents = session.scalars(
+        select(Incident).where(Incident.account_id == body.accountId).order_by(Incident.detected_at.desc()).limit(8)
+    ).all()
+    return TroubleshootResponse(
+        runId=result.run_id,
+        answer=result.answer,
+        refusal=result.refusal,
+        refusalReason=result.refusal_reason,
+        grounded=result.grounded,
+        citations=result.citations,
+        proposedActions=result.proposed_actions,
+        toolCalls=[_tool_view(call) for call in result.tool_calls],
+        promptTokens=result.prompt_tokens,
+        completionTokens=result.completion_tokens,
+        estimatedCostUsd=f"{result.estimated_cost_usd:.6f}",
+        latencyMs=result.latency_ms,
+        model=result.model,
+        traceId=result.trace_id,
+        relatedIncidents=[
+            {
+                "id": str(row.id),
+                "title": row.title,
+                "incidentType": row.incident_type,
+                "severity": row.severity,
+                "status": row.status,
+            }
+            for row in incidents
+        ],
     )
 
 

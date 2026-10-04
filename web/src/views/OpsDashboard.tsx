@@ -3,7 +3,10 @@ import { useEffect, useState } from "react";
 import { ApiError } from "../api";
 import type { Api } from "../api";
 import { qs } from "../api";
-import { ConfirmDialog, DataTable, Metric, Placeholder, Skeleton, StatusBadge } from "../components";
+import { ConfirmDialog, DataTable, Metric, Skeleton, StatusBadge } from "../components";
+import { FailureDashboard } from "../features/ops/failures/FailureDashboard";
+import { FindingsPanel } from "../features/ops/findings/FindingsPanel";
+import { ReportsPanel } from "../features/ops/reports/ReportsPanel";
 import { actorLabel, inr, partyName, whenTime } from "../format";
 import type { Account, Adjustment, AgentRun, AuditEntry } from "../types";
 
@@ -215,13 +218,10 @@ export function OpsDashboard({
               <p className="empty">No plan-change proposals. Plan changes are a Phase 4 placeholder.</p>
             ) : null}
           </section>
-          <div className="placeholders">
-            <Placeholder phase="Phase 4" title="Failure dashboard">
-              Live failures, stuck bill runs, consumer lag, and the fraud and revenue checks. The event publisher is still a no-op, so this panel is a placeholder.
-            </Placeholder>
-            <Placeholder phase="Phase 4" title="Reports">
-              Daily and monthly billing, collections, dispute, and treatment reports are not generated yet.
-            </Placeholder>
+          <div className="phase4">
+            <FailureDashboard api={api} />
+            <ReportsPanel api={api} />
+            <FindingsPanel api={api} />
           </div>
         </>
       ) : null}

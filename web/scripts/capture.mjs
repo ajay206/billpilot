@@ -70,11 +70,33 @@ await page.getByRole("button", { name: "Ask" }).click();
 await page.getByRole("button", { name: /tool call/i }).waitFor();
 await page.screenshot({ path: path.join(outDir, "csr.png"), fullPage: true });
 
+const trouble = page.getByRole("region", { name: /csr troubleshooting/i });
+await trouble.getByLabel("Error or symptom").fill(
+  "Troubleshooting: a payment failed with token PAYMENT_DECLINED. Follow the failed payment runbook.",
+);
+await trouble.getByRole("button", { name: "Run troubleshooting" }).click();
+await trouble.getByText(/failed payment/i).waitFor();
+await trouble.screenshot({ path: path.join(outDir, "troubleshoot.png") });
+
 await page.getByRole("button", { name: /ananya rao/i }).click();
 await page.getByRole("menuitem", { name: "Log out" }).click();
 await page.getByRole("button", { name: /sign in as meera kapoor/i }).click();
 await page.getByRole("button", { name: "Approve" }).first().waitFor();
-await page.getByRole("region", { name: /failure dashboard, phase 4/i }).waitFor();
+const failures = page.getByRole("region", { name: /failure dashboard/i });
+await failures.getByRole("button", { name: "Simulate failures" }).click();
+await failures.getByText(/payment failed|dead-letter|bill run/i).first().waitFor();
+await failures.screenshot({ path: path.join(outDir, "failures.png") });
+
+const reports = page.getByRole("region", { name: /^reports$/i });
+await reports.getByRole("button", { name: "Generate reports" }).click();
+await reports.getByRole("button", { name: "billing · daily" }).waitFor();
+await reports.screenshot({ path: path.join(outDir, "reports.png") });
+
+const findings = page.getByRole("region", { name: /fraud and revenue findings/i });
+await findings.getByRole("button", { name: "Run checks" }).click();
+await findings.getByRole("button", { name: "Open case" }).first().waitFor();
+await findings.screenshot({ path: path.join(outDir, "findings.png") });
+
 await page.screenshot({ path: path.join(outDir, "ops.png"), fullPage: true });
 
 await browser.close();

@@ -79,7 +79,9 @@ class LangfuseTurnTrace:
     on the root observation so they stay on this trace.
     """
 
-    def __init__(self, client, *, persona: str, actor_id: str, request_id: str, message: str) -> None:
+    def __init__(
+        self, client, *, persona: str, actor_id: str, request_id: str, message: str, name: str = "billpilot.chat"
+    ) -> None:
         self.trace_id: str | None = None
         self._client = client
         self._root = None
@@ -88,7 +90,7 @@ class LangfuseTurnTrace:
         try:
             self.trace_id = client.create_trace_id(seed=request_id)
             self._root = client.start_observation(
-                name="billpilot.chat",
+                name=name,
                 as_type="span",
                 trace_context={"trace_id": self.trace_id},
                 input={"message": message},
@@ -154,7 +156,9 @@ class LangfuseTurnTrace:
             self._disabled = True
 
 
-def build_turn_trace(settings: Settings, *, persona: str, actor_id: str, request_id: str, message: str):
+def build_turn_trace(
+    settings: Settings, *, persona: str, actor_id: str, request_id: str, message: str, name: str = "billpilot.chat"
+):
     client = get_langfuse_client(settings)
     if client is None:
         return NullTurnTrace()
@@ -164,4 +168,5 @@ def build_turn_trace(settings: Settings, *, persona: str, actor_id: str, request
         actor_id=actor_id,
         request_id=request_id,
         message=message,
+        name=name,
     )

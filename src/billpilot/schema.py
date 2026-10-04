@@ -2,6 +2,8 @@
 
 `users` (migration 004) is the sign-in table. It is not part of this ledger and
 is not truncated when the generator replaces billing rows.
+Operational tables (the event outbox, dead letters, findings, reports) are not part of
+that 23. They are truncated with the ledger so a re-seed does not keep stale failures.
 """
 
 TABLES: tuple[str, ...] = (
@@ -62,4 +64,14 @@ INSERT_ORDER: tuple[str, ...] = (
     "fraud_flags",
     "incidents",
     "audit_log",
+)
+
+# Not part of the 23-table billing model. Truncated on re-seed; not filled by the generator.
+OPS_TABLES: tuple[str, ...] = (
+    "dead_letter_events",
+    "outbox_events",
+    "bill_runs",
+    "consumer_cursors",
+    "ra_findings",
+    "report_runs",
 )
