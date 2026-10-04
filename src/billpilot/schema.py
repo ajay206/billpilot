@@ -1,0 +1,61 @@
+"""The 23 tables in the Phase 1 billing model, grouped the way the architecture deck groups them."""
+
+TABLES: tuple[str, ...] = (
+    # Customer and product
+    "customers",
+    "accounts",
+    "tariff_plans",
+    "subscriptions",
+    # Usage and roaming
+    "usage_events",
+    "roaming_packs",
+    # Billing and disputes
+    "invoices",
+    "invoice_lines",
+    "adjustments",
+    "disputes",
+    # Payments
+    "payments",
+    "payment_attempts",
+    # Entitlements and VAS
+    "entitlements",
+    "entitlement_balances",
+    "vas_subscriptions",
+    # Collections / treatment
+    "treatment_plans",
+    "account_treatment",
+    "treatment_exemptions",
+    "dunning_events",
+    # Operations and governance
+    "tickets",
+    "fraud_flags",
+    "incidents",
+    "audit_log",
+)
+
+# Insert order respects foreign keys. Truncate uses CASCADE and can list all of them.
+INSERT_ORDER: tuple[str, ...] = (
+    "customers",
+    "tariff_plans",
+    "accounts",
+    "subscriptions",
+    "vas_subscriptions",
+    "roaming_packs",
+    "entitlements",
+    "entitlement_balances",
+    "usage_events",
+    "invoices",
+    "invoice_lines",
+    "payments",
+    "payment_attempts",
+    "tickets",
+    "disputes",
+    "adjustments",
+    "treatment_plans",
+    "account_treatment",
+    "treatment_exemptions",
+    "dunning_events",
+    "fraud_flags",
+    "incidents",
+    "audit_log",
+)
