@@ -513,6 +513,7 @@ def to_billing_account(
         href=resource_href(request, f"accountManagement/v4/billingAccount/{account.id}"),
         type_name="BillingAccount",
         name=account.account_number,
+        customerNumber=customer.customer_number,
         state=account.status,
         treatment=treatment_view,
         exemption=exemption_view,

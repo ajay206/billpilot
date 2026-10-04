@@ -1,5 +1,7 @@
 # Langfuse tracing is off unless it is configured
 
+Superseded for the product path by [0022](0022-langfuse-step-traces.md). The boolean flag described below has been removed. Tracing is on when the public key, secret key, and host are all set, and each turn records a span per step. The note is kept so the original "do not fail the request" choice stays readable.
+
 ## Decision
 
 `LANGFUSE_ENABLED` defaults to false. When it is true, `trace_run` imports `langfuse` and sends one trace. The package is an optional extra (`pip install -e ".[tracing]"`). A missing package, a missing key, or a network error is logged and swallowed. The answer, the `agent_runs` row, and the audit row are already committed.

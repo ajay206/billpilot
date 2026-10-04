@@ -16,11 +16,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from billpilot import __version__
+from billpilot.agent.tracing import tracing_configured
 from billpilot.api.agent_routes import router as agent_router
 from billpilot.api.routes import audit_router, router
 from billpilot.config import Settings, get_settings
 from billpilot.events import NullPublisher
 from billpilot.logging import configure_logging, request_id_var
+from billpilot.ui import mount_ui
 
 DESCRIPTION = """
 Learning mock of a telecom BSS, shaped like TM Forum Open APIs
@@ -147,18 +149,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             content=error_body(exc.status_code, message, getattr(request.state, "request_id", None)),
         )
 
-    @app.get("/", include_in_schema=False)
-    def root() -> dict:
-        return {
-            "service": "billpilot-mock-bss",
-            "docs": "/docs",
-            "health": "/health",
-            "note": "Learning mock. Not a certified TM Forum implementation.",
-        }
-
     @app.get("/health", tags=["Health"])
     def health() -> dict:
-        return {"status": "ok"}
+        current = app.state.settings
+        demo = current.llm_backend != "api" or not current.llm_api_key.strip()
+        return {
+            "status": "ok",
+            "demoMode": demo,
+            "llmBackend": current.llm_backend,
+            "tracing": tracing_configured(current),
+        }
+
+    if not mount_ui(app):
+
+        @app.get("/", include_in_schema=False)
+        def root() -> dict:
+            return {
+                "service": "billpilot-mock-bss",
+                "docs": "/docs",
+                "health": "/health",
+                "note": "Learning mock. Not a certified TM Forum implementation.",
+            }
 
     return app
 

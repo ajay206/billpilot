@@ -24,7 +24,14 @@ from billpilot.main import create_app
 
 
 def run_harness(settings: Settings, ground_truth: dict, output_dir: Path, backend: str = "fake") -> dict:
-    settings = settings.model_copy(update={"llm_backend": backend, "langfuse_enabled": False})
+    settings = settings.model_copy(
+        update={
+            "llm_backend": backend,
+            "langfuse_public_key": "",
+            "langfuse_secret_key": "",
+            "langfuse_host": "",
+        }
+    )
     app = create_app(settings)
     engine = create_engine(settings.database_url, pool_pre_ping=True)
     with Session(engine) as session:

@@ -1,8 +1,8 @@
 # BillPilot
 
-BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness.
+BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness. Phase 3 is the product surface: a customer chat, a CSR console, and an ops dashboard, served by the same process, plus optional Langfuse traces and a free-tier deploy.
 
-Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one. The UI, Langfuse as a product, Kafka, reports, onboarding, and launch are later phases. See [Roadmap](#roadmap).
+Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one. Kafka, reports, onboarding, and launch are later phases. See [Roadmap](#roadmap).
 
 ## Synthetic data only
 
@@ -27,8 +27,11 @@ flowchart LR
     DB[(PostgreSQL and pgvector)]
     Gen[Synthetic generator]
   end
+  subgraph phase3 [Phase 3]
+    UI[Persona UI]
+    Trace[Langfuse spans]
+  end
   subgraph later [Later phases]
-    UI["Phase 3 UI and Langfuse"]
     Broker["Phase 4 Kafka and reports"]
     Onboard[Phase 5 onboarding]
     Launch[Phase 6 launch]
@@ -43,7 +46,8 @@ flowchart LR
   API --> DB
   Gen --> DB
   Loop --> DB
-  UI -.-> API
+  UI --> API
+  Loop --> Trace
   API -.-> Broker
 ```
 
@@ -59,7 +63,15 @@ Requirements: Docker, and for tests a local Python 3.12.
 docker compose up --build
 ```
 
-That starts Postgres, runs migrations, and seeds 500 customers across 6 months. The API is at <http://localhost:8000/docs>.
+That starts Postgres, runs migrations, seeds 500 customers across 6 months, and serves the API and the persona UI from one process. Open <http://localhost:8000> for the UI and <http://localhost:8000/docs> for the API.
+
+The header switches persona. Each button sends one of the demo keys below. With no model key, a banner says the copilot is in demo mode.
+
+![Customer chat](docs/screenshots/customer.png)
+
+![CSR console](docs/screenshots/csr.png)
+
+![Ops dashboard](docs/screenshots/ops.png)
 
 Persona keys (local demo defaults, also in `.env.example`):
 
@@ -96,7 +108,7 @@ After the first publish, set the package visibility to **Public** once, under th
 docker pull ghcr.io/ajay206/billpilot:latest
 ```
 
-The image migrates on startup and does not load the synthetic ledger by itself. This Compose file uses the published image for both the one-shot seed and the API:
+The image migrates on startup. If the ledger is empty it seeds before listening, and it serves the persona UI from the same port as the API. Compose below still runs an explicit seed so a laptop load of 500 customers finishes before the API starts. The API then sees the rows and skips a second seed:
 
 ```yaml
 services:
@@ -152,6 +164,14 @@ make test
 
 `make test` starts Postgres, creates a database named `billpilot_test`, then runs ruff and pytest. Tests refuse any other database name.
 
+The persona UI has its own tests:
+
+```bash
+cd web && npm ci && npm test
+```
+
+CI runs both. A free-tier deploy (Neon Postgres, Render web service, optional Langfuse Hobby) is written up in [docs/deploy.md](docs/deploy.md). `render.yaml` is the blueprint. The container migrates and seeds an empty database before it listens.
+
 ## API
 
 All TMF-shaped routes are under `/tmf-api`. Lists accept `offset` and `limit` (default 20, max 100) and return `X-Total-Count` and `X-Result-Count`.
@@ -174,7 +194,9 @@ All TMF-shaped routes are under `/tmf-api`. Lists accept `offset` and `limit` (d
 | GET | `/accountManagement/v4/fraudFlag` | all three, within scope; synthetic roaming-spike and SIM-swap flags, read only |
 | GET | `/ops/auditLog` | ops |
 | POST | `/agent/chat` | the API key chooses the persona; body is `message` and optional `accountId` |
-| GET | `/health` | public |
+| GET | `/health` | public. Includes `demoMode` and `tracing` |
+| GET | `/ops/agentRuns` | ops. Cost, latency, tokens, decision tier, trace id |
+| GET | `/knowledge/section` | any persona. One cited policy section, for the UI |
 
 Filters use dotted names where the Open API does: `billingAccount.id`, `billNo`, `billDate.gte`, `usageType`, `product.id`.
 
@@ -240,7 +262,7 @@ LLM_API_KEY=sk-...
 
 Any host that accepts `POST {LLM_BASE_URL}/chat/completions` works. Do not add a local model runtime. Embeddings default to `EMBEDDING_BACKEND=hash` (no download). `EMBEDDING_BACKEND=api` calls `{LLM_BASE_URL}/embeddings` and must return 256 dimensions. Reindex after changing it: `billpilot knowledge reindex`.
 
-Langfuse is a Phase 3 deliverable. A hook exists and defaults to off (`LANGFUSE_ENABLED`). Install it with `pip install -e ".[tracing]"` only if you want a single trace per turn. A missing package or a failed export does not change the answer. Per-step traces are not built yet.
+Langfuse traces a turn only when `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, and `LANGFUSE_HOST` are all set. The SDK is installed with the app. One trace per chat (`billpilot.chat`) contains the guardrail check, each model call with tokens and estimated cost, each tool call, retrieval with the cited doc ids, the output check, and the decision. The trace id is stored on `agent_runs` and shown in the ops dashboard. If a variable is missing, or Langfuse is down, the turn still answers. CI and `docker compose up` leave the keys empty. The free Hobby setup is in [docs/deploy.md](docs/deploy.md).
 
 ### Ask
 
@@ -297,7 +319,7 @@ python -m billpilot.evals --estimate-only --ground-truth data/ground_truth.json
 
 ## Decisions
 
-Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the dormant Langfuse hook, the treatment read, and the fraud-flag read.
+Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the treatment read, and the fraud-flag read. Phase 3 notes cover the React UI, Render and Neon, per-step Langfuse traces (which replace the old on/off hook), and the credit approval queue.
 
 Ops still approves a credit on the existing endpoint. That audit row is where the approver, amount, and timestamp are recorded. The copilot's own audit row records the proposal (`decision=propose`), not an approver, because the copilot is never the approver.
 
@@ -308,8 +330,8 @@ The deck's later phases were reordered. This is the plan the repo follows now.
 | Phase | What it is | Status |
 | --- | --- | --- |
 | 1 | Postgres ledger, synthetic generator, TMF-shaped mock APIs, approval queue, audit log, Docker Compose, CI | Done, on `main` |
-| 2 | Tool-calling copilot, RAG with citations, guardrails, propose-not-apply, eval harness | This branch |
-| 3 | UI (customer chat, CSR console, ops dashboard), free-tier deploy, Langfuse tracing | Not started |
+| 2 | Tool-calling copilot, RAG with citations, guardrails, propose-not-apply, eval harness | On the parent branch, not merged |
+| 3 | UI (customer chat, CSR console, ops dashboard), free-tier deploy, Langfuse tracing | This branch |
 | 4 | Ops layer: Kafka or Redpanda, failure dashboard, daily and monthly reports, CSR troubleshooting AI (paste an error, get numbered steps) | Not started. `NullPublisher` is the stand-in. Topics already named: `usage.rated`, `bill.run`, `payment.events`, `treatment.actions`, `entitlement.changes`, `system.errors` |
 | 5 | Onboarding and migration: one API call, bulk dry run, reconciliation, idempotent re-runs, rollback | Not started |
 | 6 | Integration and launch | Not started |

@@ -10,7 +10,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from billpilot.api.access import account_for_subscription, require_account, scope_accounts
@@ -941,9 +941,25 @@ def list_billing_accounts(
     offset: int = Query(0, ge=0),
     limit: int = Query(20, ge=1, le=100),
     account_id: uuid.UUID | None = Query(None, alias="id"),
+    q: str | None = Query(None, max_length=80),
 ):
-    """Accounts in scope, with the open treatment. A read added for the copilot."""
+    """Accounts in scope, with the open treatment. A read added for the copilot.
+
+    `q` matches the account number, the customer number, or the customer name.
+    The CSR console uses it as its search box.
+    """
     stmt = _account_filter(session, principal, select(Account), Account.id, account_id)
+    if q and q.strip():
+        escaped = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        term = f"%{escaped}%"
+        stmt = stmt.join(Customer, Customer.id == Account.customer_id).where(
+            or_(
+                Account.account_number.ilike(term, escape="\\"),
+                Customer.customer_number.ilike(term, escape="\\"),
+                Customer.given_name.ilike(term, escape="\\"),
+                Customer.family_name.ilike(term, escape="\\"),
+            )
+        )
     total = _count(session, stmt)
     rows = session.scalars(stmt.order_by(Account.account_number).offset(offset).limit(limit)).all()
     _page_headers(response, total, len(rows))

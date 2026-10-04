@@ -1,7 +1,7 @@
 [project]
 name = "billpilot"
-version = "0.2.0"
-description = "BillPilot mock BSS and billing copilot: synthetic telecom data, TMF-shaped APIs, and a tool-calling agent."
+version = "0.3.0"
+description = "BillPilot mock BSS and billing copilot: synthetic telecom data, TMF-shaped APIs, a tool-calling agent, and a persona UI."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -15,6 +15,7 @@ dependencies = [
     "pydantic-settings>=2.6",
     "sqlalchemy>=2.0.36",
     "uvicorn[standard]>=0.32",
+    "langfuse>=4,<5",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +24,7 @@ dev = [
     "ruff>=0.8",
 ]
 tracing = [
-    "langfuse>=2.50",
+    "langfuse>=4,<5",
 ]
 
 [project.scripts]

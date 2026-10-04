@@ -5,8 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from billpilot.agent.model import Completion
-from billpilot.agent.tracing import trace_run
-from billpilot.config import Settings, get_settings
+from billpilot.config import get_settings
 from billpilot.main import create_app
 
 
@@ -57,26 +56,6 @@ def test_customer_explain_uses_tools_and_does_not_propose(seeded):
     assert "propose_adjustment" not in names
     assert "approve_adjustment" not in names
     assert body["estimatedCostUsd"] == "0.000000"
-
-
-def test_tracing_is_off_by_default_and_a_missing_client_does_not_raise():
-    trace_run(Settings(langfuse_enabled=False), None)
-    trace_run(
-        Settings(langfuse_enabled=True, langfuse_public_key="", langfuse_secret_key=""),
-        type(
-            "Run",
-            (),
-            {
-                "actor_id": "customer:CUST-000001",
-                "user_message": "hi",
-                "answer": "hello",
-                "persona": "customer",
-                "run_id": "1",
-                "refusal": False,
-                "model": "fake",
-            },
-        )(),
-    )
 
 
 def test_scripted_completion_is_what_the_endpoint_returns(seeded):
