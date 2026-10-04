@@ -75,3 +75,12 @@ OPS_TABLES: tuple[str, ...] = (
     "ra_findings",
     "report_runs",
 )
+
+# Phase 5 control tables. They are not part of the original 23 billing tables.
+# A re-seed truncates them so credit profiles and batch links do not survive a new ledger.
+CONTROL_TABLES: tuple[str, ...] = (
+    "migration_links",
+    "migration_records",
+    "migration_batches",
+    "credit_profiles",
+)

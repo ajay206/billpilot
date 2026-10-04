@@ -2,7 +2,7 @@
 
 BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness. Phase 3 is the product surface: a customer portal, a CSR console, and an ops control tower, served by the same process, plus optional Langfuse traces and a free-tier deploy. Sign-in replaced the persona switcher. The browser session carries a user id. Role and scope are read from the `users` table on the server. Phase 4 is the operations layer: a billing-event pipeline, a failure dashboard, SQL reports, rule-based fraud and revenue checks, and a CSR troubleshooting assistant.
 
-Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one. Onboarding and launch are later phases. See [Roadmap](#roadmap).
+Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one. A new sale is one onboarding call, and a legacy file moves in only after a dry run and a human sign-off. See [Roadmap](#roadmap).
 
 ## Synthetic data only
 
@@ -38,7 +38,7 @@ flowchart LR
     Checks[Fraud and revenue checks]
   end
   subgraph later [Later phases]
-    Onboard[Phase 5 onboarding]
+    Onboard[Phase 5 onboarding and migration]
     Launch[Phase 6 launch]
   end
   CLI --> Loop
@@ -228,6 +228,13 @@ All TMF-shaped routes are under `/tmf-api`. Lists accept `offset` and `limit` (d
 | GET | `/auth/me` | the signed-in user. Role and scope come from `users`. |
 | GET | `/auth/demo-accounts` | public. The synthetic demo passwords, marked demo-only. |
 | POST | `/agent/chat` | the session or the API key chooses the persona; body is `message` and optional `accountId` |
+| POST | `/onboarding` and `/customerManagement/v4/onboarding` | csr, ops. One call creates the customer, account, subscription, entitlements, treatment, and credit profile. The first bill is a preview and is not posted |
+| POST | `/ops/migration/batches` | ops. Load a synthetic legacy CSV or JSON file, or `source=sample` |
+| POST | `/ops/migration/batches/{id}/dry-run` | ops. Reconcile without writing billing rows |
+| POST | `/ops/migration/batches/{id}/sign-off` | ops. Approve the plan mapping. `approveMapping` must be true |
+| POST | `/ops/migration/batches/{id}/commit` | ops. Idempotent upsert of a signed-off batch, one transaction |
+| POST | `/ops/migration/batches/{id}/rollback` | ops. Delete the rows that batch created |
+| GET | `/ops/migration/batches/{id}/reconciliation.csv` | ops. Counts, balance totals, and per-record rejects |
 | GET | `/health` | public. Includes `demoMode` and `tracing` |
 | GET | `/ops/agentRuns` | ops. Cost, latency, tokens, decision tier, trace id |
 | GET | `/knowledge/section` | any persona. One cited policy section, for the UI |
@@ -320,7 +327,7 @@ curl -s -X POST -H 'X-API-Key: dev-ops-key' -H 'Content-Type: application/json' 
 
 ### Evals
 
-The harness builds 72 labelled cases from `data/ground_truth.json` (or from the generator if that file is missing). Counts: guardrail 15, policy 13, disputes 8, bill explanation 7, treatment 6, entitlements 5, CSR runbook 9, revenue assurance and fraud 4, payments 3, VAS and plan 2. Five of the CSR runbook cases are troubleshooting turns (failed payment, unbar not applied, roaming not working, bill not generated, entitlement missing). CI scores those on the fake model. That is not a hosted-model measurement.
+The harness builds 76 labelled cases from `data/ground_truth.json` (or from the generator if that file is missing). Counts: guardrail 17, policy 13, disputes 8, bill explanation 7, treatment 6, entitlements 5, CSR runbook 9, revenue assurance and fraud 4, payments 3, VAS and plan 2, migration 2. Five of the CSR runbook cases are troubleshooting turns. The two migration cases ask ops for batch status and rejects. Two guardrail cases refuse a migration commit and refuse a customer who asks for a batch. CI scores these on the fake model. That is not a hosted-model measurement.
 
 CI runs the harness inside pytest against the fake model. That smoke test checks that guardrail cases are refused, that no case calls an approve tool, and that a report file is written. It is not a quality score.
 
@@ -328,7 +335,7 @@ No measured run is committed. The table is a placeholder. Fill it by running the
 
 | Metric | Fake smoke (CI) | Hosted model |
 | --- | --- | --- |
-| Cases | 72 | — |
+| Cases | 76 | — |
 | Fault detected | — | — |
 | Credit amount correct | — | — |
 | Accuracy | — | — |
@@ -349,7 +356,7 @@ LLM_BACKEND=api LLM_API_KEY=sk-... LLM_BASE_URL=https://api.openai.com/v1 LLM_MO
 python -m billpilot.evals --estimate-only --ground-truth data/ground_truth.json
 ```
 
-**Cost estimate, not a measurement.** At the built-in `gpt-4o-mini` prices (0.15 USD per million prompt tokens, 0.60 USD per million completion tokens), one full run of 72 cases is **0.084240 USD**. The formula assumes 3 calls per case, 1200 prompt tokens and 350 completion tokens per call. Hash embeddings are free and are not in that number. A different model uses `LLM_PRICE_TABLE` or the `LLM_*_PRICE_PER_MILLION` fallbacks. The fake backend costs 0.
+**Cost estimate, not a measurement.** At the built-in `gpt-4o-mini` prices (0.15 USD per million prompt tokens, 0.60 USD per million completion tokens), one full run of 76 cases is **0.088920 USD**. The formula assumes 3 calls per case, 1200 prompt tokens and 350 completion tokens per call. Hash embeddings are free and are not in that number. A different model uses `LLM_PRICE_TABLE` or the `LLM_*_PRICE_PER_MILLION` fallbacks. The fake backend costs 0. CI uses the fake model and does not send a real key.
 
 ## Operations
 
@@ -402,9 +409,15 @@ billpilot assurance run
 billpilot assurance score --ground-truth data/ground_truth.json
 ```
 
+## Onboarding and migration
+
+`POST /onboarding` (and the same handler at `POST /tmf-api/customerManagement/v4/onboarding`) opens one subscriber. CSR and ops can call it. The customer role cannot. The call checks the MSISDN, phone, email, cycle day, and that the plan and any VAS exist. It writes the customer, account, subscription, the plan's voice, data, and SMS entitlements, an active treatment at stage `none`, and a credit profile of class `new` with a limit of twice the monthly fee. Opted-in VAS only. The welcome text includes a first-bill preview. That preview is not an invoice, so collections do not start.
+
+A legacy file is CSV or JSON with customers, services, and balances. `python -m billpilot legacy-sample --format csv --output /tmp/legacy.csv` writes a synthetic file that includes bad MSISDNs, a duplicate customer, an unknown plan, a negative balance, and orphan services and balances. Plan codes map through `src/billpilot/migration/plan_map.json`, not through a free model guess. Ops loads the file, dry-runs it, approves the mapping, then commits. A second commit of the same batch writes nothing. Rollback deletes only the rows that batch created. Each batch is one database transaction, so the other APIs stay up. A batch is capped at 500 records so it fits the free web instance. Ops opens it from the Migration item in the sidebar. CSR can onboard from the account screen before an account is selected, and cannot run a migration.
+
 ## Decisions
 
-Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the treatment read, and the fraud-flag read. Phase 3 notes cover the React UI, Render and Neon, per-step Langfuse traces (which replace the old on/off hook), and the credit approval queue. Sign-in notes cover the session cookie ([0024](docs/decisions/0024-signed-session-cookie.md)), the hand-built shell ([0025](docs/decisions/0025-enterprise-shell.md)), and the demo users ([0026](docs/decisions/0026-demo-users.md)). Phase 4 notes cover the two event backends ([0027](docs/decisions/0027-event-backends.md)), the failure store ([0028](docs/decisions/0028-failure-store.md)), SQL reports ([0029](docs/decisions/0029-sql-reports.md)), the rule detectors ([0030](docs/decisions/0030-rule-detectors.md)), and CSR troubleshooting ([0031](docs/decisions/0031-csr-troubleshooting.md)).
+Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the treatment read, and the fraud-flag read. Phase 3 notes cover the React UI, Render and Neon, per-step Langfuse traces (which replace the old on/off hook), and the credit approval queue. Sign-in notes cover the session cookie ([0024](docs/decisions/0024-signed-session-cookie.md)), the hand-built shell ([0025](docs/decisions/0025-enterprise-shell.md)), and the demo users ([0026](docs/decisions/0026-demo-users.md)). Phase 4 notes cover the two event backends ([0027](docs/decisions/0027-event-backends.md)), the failure store ([0028](docs/decisions/0028-failure-store.md)), SQL reports ([0029](docs/decisions/0029-sql-reports.md)), the rule detectors ([0030](docs/decisions/0030-rule-detectors.md)), and CSR troubleshooting ([0031](docs/decisions/0031-csr-troubleshooting.md)). Phase 5 notes cover the one-call onboarding preview ([0032](docs/decisions/0032-onboarding-preview.md)), config plan mapping ([0033](docs/decisions/0033-plan-map-config.md)), the dry-run and rollback batch ([0034](docs/decisions/0034-migration-batch.md)), and read-only migration tools ([0035](docs/decisions/0035-migration-tools.md)).
 
 Ops still approves a credit on the existing endpoint. That audit row is where the approver, amount, and timestamp are recorded. The copilot's own audit row records the proposal (`decision=propose`), not an approver, because the copilot is never the approver.
 
@@ -417,8 +430,8 @@ The deck's later phases were reordered. This is the plan the repo follows now.
 | 1 | Postgres ledger, synthetic generator, TMF-shaped mock APIs, approval queue, audit log, Docker Compose, CI | Done, on `main` |
 | 2 | Tool-calling copilot, RAG with citations, guardrails, propose-not-apply, eval harness | Done, on `main` |
 | 3 | UI (customer portal, CSR console, ops control tower), sign-in and role scope, free-tier deploy, Langfuse tracing | Done, on `main` |
-| 4 | Ops layer: Redpanda or a Postgres outbox, failure dashboard, SQL reports, fraud and revenue checks, CSR troubleshooting | This branch |
-| 5 | Onboarding and migration: one API call, bulk dry run, reconciliation, idempotent re-runs, rollback | Not started |
+| 4 | Ops layer: Redpanda or a Postgres outbox, failure dashboard, SQL reports, fraud and revenue checks, CSR troubleshooting | Done, on `main` |
+| 5 | Onboarding and migration: one API call, bulk dry run, reconciliation, idempotent re-runs, rollback | This branch. Batches stay in Postgres. No extra host |
 | 6 | Integration and launch | Not started |
 
 Still deferred inside those phases, not scheduled on their own: certified TM Forum conformance, split GST, and multi-replica rate limits. An approve tool stays out. Ops keeps the existing approval endpoint.

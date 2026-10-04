@@ -177,6 +177,18 @@ def _ask(args) -> None:
     )
 
 
+def _legacy_sample(args) -> None:
+    from billpilot.migration.legacy import render_csv, render_json, sample_records
+
+    text = render_csv(sample_records()) if args.format == "csv" else render_json(sample_records())
+    if args.output:
+        Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+        Path(args.output).write_text(text)
+        print(f"Wrote {args.output}")
+        return
+    print(text, end="")
+
+
 def _reindex_knowledge() -> None:
     from sqlalchemy.orm import Session
 
@@ -289,6 +301,9 @@ def main(argv: list[str] | None = None) -> None:
     ask.add_argument("--account", help="Billing account UUID. Required for a CSR or ops investigation.")
     ask.add_argument("--backend", choices=("fake", "api"), help="Override LLM_BACKEND for this process.")
     ask.add_argument("message")
+    legacy = commands.add_parser("legacy-sample", help="Write a synthetic legacy file with deliberate dirty rows.")
+    legacy.add_argument("--format", choices=("json", "csv"), default="json")
+    legacy.add_argument("--output")
     knowledge = commands.add_parser("knowledge")
     knowledge_commands = knowledge.add_subparsers(dest="knowledge_command", required=True)
     knowledge_commands.add_parser("reindex")
@@ -333,6 +348,9 @@ def main(argv: list[str] | None = None) -> None:
         return
     if args.command == "assurance":
         _assurance(args.assurance_command, getattr(args, "ground_truth", None))
+        return
+    if args.command == "legacy-sample":
+        _legacy_sample(args)
         return
 
     config = config_from_env()

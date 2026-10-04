@@ -65,6 +65,8 @@ export const NAV: Record<Role, { id: string; label: string }[]> = {
     { id: "failures", label: "Failures" },
     { id: "reports", label: "Reports" },
     { id: "findings", label: "Findings" },
+    { id: "onboarding", label: "Onboarding" },
+    { id: "migration", label: "Migration" },
     { id: "runs", label: "Agent runs" },
     { id: "audit", label: "Audit log" },
   ],

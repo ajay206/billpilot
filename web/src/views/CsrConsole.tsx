@@ -4,6 +4,7 @@ import type { Api } from "../api";
 import { qs } from "../api";
 import { AnswerText, DataTable, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
 import { TroubleshootPanel } from "../features/csr/troubleshoot/TroubleshootPanel";
+import { OnboardingPanel } from "../features/onboarding/OnboardingPanel";
 import { characteristic, inr, partyName, when, whenTime } from "../format";
 import type {
   Account,
@@ -336,7 +337,10 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
             ) : null}
           </>
         ) : (
-          <TroubleshootPanel api={api} accountId={null} onCite={(doc, section) => setCitation({ doc, section })} />
+          <>
+            <OnboardingPanel api={api} />
+            <TroubleshootPanel api={api} accountId={null} onCite={(doc, section) => setCitation({ doc, section })} />
+          </>
         )}
       </section>
       <section className="panel copilot" aria-label="CSR copilot">

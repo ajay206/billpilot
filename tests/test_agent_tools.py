@@ -28,6 +28,12 @@ def test_allowlists_match_the_persona_and_never_include_approve():
     assert "create_dispute" not in ops
     assert "list_audit" in ops
     assert "list_audit" not in customer
+    assert "list_migration_batches" in ops
+    assert "list_migration_rejects" in ops
+    assert "get_migration_batch" in ops
+    assert "list_migration_batches" not in customer
+    assert "list_migration_batches" not in csr
+    assert "commit_migration" not in TOOLS_BY_NAME
     assert "search_knowledge" in customer and "search_knowledge" in csr and "search_knowledge" in ops
 
 

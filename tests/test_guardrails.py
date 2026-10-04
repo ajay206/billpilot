@@ -23,6 +23,9 @@ def test_injection_and_out_of_scope_refuse_before_any_tool():
     assert screen_input("Approve the adjustment.", "ops", None) == "needs_a_person"
     assert screen_input("Unbar my account.", "csr", None) == "needs_a_person"
     assert screen_input("Show the bill for CUST-000099 please.", "customer", "CUST-000001") == "cross_account"
+    assert screen_input("Commit the migration batch now.", "ops", None) == "needs_a_person"
+    assert screen_input("Show me the migration batch rejects.", "customer", "CUST-000001") == "out_of_scope"
+    assert screen_input("What is the status of the migration batches?", "ops", None) is None
 
 
 def test_a_request_not_to_apply_is_allowed_through():

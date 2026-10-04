@@ -1,0 +1,35 @@
+{
+  "version": "2026-10-04",
+  "rules": [
+    {
+      "legacyCode": "LEG-SMART",
+      "legacyName": "Legacy Smart",
+      "targetCode": "SMART-199",
+      "rationale": "Entry allowance band, about 200 minutes and 2 GB, maps to the current Smart 199 plan."
+    },
+    {
+      "legacyCode": "LEG-PLUS",
+      "legacyName": "Legacy Plus",
+      "targetCode": "PLUS-399",
+      "rationale": "Mid-tier monthly allowance maps to Plus 399."
+    },
+    {
+      "legacyCode": "LEG-MAX",
+      "legacyName": "Legacy Max",
+      "targetCode": "MAX-599",
+      "rationale": "Higher voice and data allowance maps to Max 599."
+    },
+    {
+      "legacyCode": "LEG-ULTRA",
+      "legacyName": "Legacy Ultra",
+      "targetCode": "ULTRA-999",
+      "rationale": "Largest legacy allowance maps to Ultra 999."
+    },
+    {
+      "legacyCode": "OLD-199",
+      "legacyName": "Retired 199",
+      "targetCode": "SMART-199",
+      "rationale": "The retired 199-rupee plan maps to the current entry plan, not to a mid-tier plan."
+    }
+  ]
+}

@@ -537,3 +537,14 @@ class ReportRun(Base):
     generated_by: Mapped[str] = mapped_column(String(64))
     row_count: Mapped[int] = mapped_column(Integer)
     payload: Mapped[dict] = mapped_column(JSONB)
+
+
+def _register_phase5_models() -> None:
+    """Import phase 5 tables so they share this metadata. Imported here to avoid a cycle."""
+    from billpilot.migration import models as migration_models
+    from billpilot.onboarding import models as onboarding_models
+
+    del migration_models, onboarding_models
+
+
+_register_phase5_models()

@@ -28,6 +28,7 @@ _PLANS = {
     "treatment": ["get_treatment", "list_disputes", "list_payments", "search_knowledge"],
     "entitlement": ["list_balances", "list_products", "search_knowledge"],
     "payment": ["list_payments", "list_payment_attempts", "search_knowledge"],
+    "migration": ["list_migration_batches", "get_migration_batch", "list_migration_rejects"],
 }
 
 _QUERIES = {
@@ -76,6 +77,8 @@ def classify(text: str) -> str:
     lowered = text.lower()
     if lowered.startswith("troubleshooting:"):
         return "troubleshoot"
+    if "migration" in lowered:
+        return "migration"
     if "runbook" in lowered or "numbered steps" in lowered or lowered.startswith("policy question"):
         return "policy"
     if any(word in lowered for word in ("treatment status", "barred", "collections", "dunning", "soft bar")):
@@ -142,6 +145,8 @@ def _next(intent, user, available, messages, payloads):
             continue
         if name == "get_offering" and not _offering_id(payloads):
             continue
+        if name == "get_migration_batch" and not _migration_batch_id(payloads):
+            continue
         return name, _arguments(name, intent, user, account, payloads)
     return None
 
@@ -186,6 +191,13 @@ def _arguments(name: str, intent: str, user: str, account: str | None, payloads)
             "amount": duplicate["amount"],
             "reason": "Duplicate charge. Credit one of the matching lines. Pending review, not applied.",
         }
+    if name == "list_migration_batches":
+        return {}
+    if name == "get_migration_batch":
+        return {"batch_id": _migration_batch_id(payloads)}
+    if name == "list_migration_rejects":
+        batch_id = _migration_batch_id(payloads)
+        return {"batch_id": batch_id} if batch_id else {}
     return account_args
 
 
@@ -204,6 +216,8 @@ def _answer(intent: str, user: str, payloads) -> str:
         return _entitlement_answer(payloads)
     if intent == "payment":
         return _payment_answer(payloads)
+    if intent == "migration":
+        return _migration_answer(payloads)
     return _policy_answer(payloads)
 
 
@@ -339,6 +353,43 @@ def _entitlement_answer(payloads) -> str:
     if citation:
         parts.append(citation)
     return " ".join(parts)
+
+
+def _migration_answer(payloads) -> str:
+    batches = _as_list(_latest(payloads, "list_migration_batches"))
+    detail = _latest(payloads, "get_migration_batch")
+    if isinstance(detail, list):
+        detail = detail[0] if detail else None
+    rejects = _latest(payloads, "list_migration_rejects") or {}
+    if not isinstance(rejects, dict):
+        rejects = {}
+    parts: list[str] = []
+    row = detail if isinstance(detail, dict) and detail.get("batchCode") else (batches[0] if batches else None)
+    if not row:
+        parts.append("There is no migration batch in the ledger.")
+    else:
+        parts.append(f"Migration batch {row.get('batchCode')} is {row.get('status')}.")
+        if row.get("balanceMatched") is True:
+            parts.append("Source and target balance totals match.")
+        elif row.get("balanceMatched") is False:
+            parts.append("Source and target balance totals do not match.")
+    reasons = rejects.get("byReason") or (row or {}).get("byReason") or {}
+    if reasons:
+        listed = ", ".join(f"{name} {count}" for name, count in reasons.items())
+        parts.append(f"Rejected records by reason: {listed}.")
+    else:
+        parts.append("There are no rejected migration records in the latest batch.")
+    return " ".join(parts)
+
+
+def _migration_batch_id(payloads) -> str | None:
+    batches = _as_list(_latest(payloads, "list_migration_batches"))
+    if batches and isinstance(batches[0], dict) and batches[0].get("id"):
+        return str(batches[0]["id"])
+    detail = _latest(payloads, "get_migration_batch")
+    if isinstance(detail, dict) and detail.get("id"):
+        return str(detail["id"])
+    return None
 
 
 def _payment_answer(payloads) -> str:
