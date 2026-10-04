@@ -1,7 +1,8 @@
 """Build an in-memory world of synthetic customers, bills and planted faults.
 
-Nothing here reads the wall clock. Names come from Faker's en_IN locale; every
-choice after that comes from random.Random(seed) or from a fixed catalogue.
+Nothing here reads the wall clock. Names come from Faker's en_IN locale, except
+the three demo customers, whose names match their sign-in. Every other choice
+comes from random.Random(seed) or from a fixed catalogue.
 """
 
 import json
@@ -11,6 +12,7 @@ from decimal import Decimal
 
 from faker import Faker
 
+from billpilot.auth.demo import holder_name_for_index
 from billpilot.billing import (
     AS_OF,
     LATE_FEE,
@@ -80,6 +82,11 @@ def build_world(config: GeneratorConfig) -> World:
     for index in range(config.customer_count):
         given = fake.first_name()
         family = fake.last_name()
+        # Draw the Faker name first so the rest of the sequence stays put, then
+        # use the demo sign-in name for the three portfolio customers.
+        override = holder_name_for_index(index)
+        if override is not None:
+            given, family = override
         city, state = CITIES[rng.randrange(len(CITIES))]
         if index in anomalies and anomalies[index][0] in TREATMENT_ANOMALIES:
             record = build_treatment_anomaly(world, ids, index, given, family, city, state, anomalies[index])

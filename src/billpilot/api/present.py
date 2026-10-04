@@ -464,7 +464,7 @@ def to_dispute(request: Request, row: Dispute) -> CustomerBillDispute:
     )
 
 
-def to_adjustment(request: Request, row: Adjustment) -> BillAdjustment:
+def to_adjustment(request: Request, row: Adjustment, account_label: str | None = None) -> BillAdjustment:
     bill = None
     if row.invoice_id is not None:
         bill = ref(request, f"customerBillManagement/v4/customerBill/{row.invoice_id}")
@@ -477,7 +477,7 @@ def to_adjustment(request: Request, row: Adjustment) -> BillAdjustment:
         reason=row.reason,
         amount=money(row.amount),
         creationDate=row.proposed_at.isoformat(),
-        billingAccount=ref(request, f"accountManagement/v4/billingAccount/{row.account_id}"),
+        billingAccount=ref(request, f"accountManagement/v4/billingAccount/{row.account_id}", account_label),
         customerBill=bill,
         proposedBy=row.proposed_by,
         decidedBy=row.decided_by,

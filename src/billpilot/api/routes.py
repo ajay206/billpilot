@@ -85,6 +85,17 @@ from billpilot.models import (
 router = APIRouter()
 audit_router = APIRouter()
 
+
+def _adjustment_view(request: Request, session: Session, row: Adjustment) -> BillAdjustment:
+    account = session.get(Account, row.account_id)
+    label = None
+    if account is not None:
+        customer = session.get(Customer, account.customer_id)
+        holder = f"{customer.given_name} {customer.family_name}" if customer is not None else account.account_number
+        label = f"{holder} · {account.account_number}"
+    return to_adjustment(request, row, label)
+
+
 _BILL_STATUS = {
     "settled": "paid",
     "partiallyPaid": "partially_paid",
@@ -324,7 +335,7 @@ def list_adjustments(
         stmt.order_by(Adjustment.proposed_at.desc(), Adjustment.id).offset(offset).limit(limit)
     ).all()
     _page_headers(response, total, len(rows))
-    return [to_adjustment(request, row) for row in rows]
+    return [_adjustment_view(request, session, row) for row in rows]
 
 
 @router.post(
@@ -382,7 +393,7 @@ def propose_adjustment(
     )
     session.commit()
     session.refresh(adjustment)
-    return to_adjustment(request, adjustment)
+    return _adjustment_view(request, session, adjustment)
 
 
 @router.post(
@@ -424,7 +435,7 @@ def decide_adjustment(
         )
         session.commit()
         session.refresh(adjustment)
-        return to_adjustment(request, adjustment)
+        return _adjustment_view(request, session, adjustment)
 
     invoice = session.get(Invoice, adjustment.invoice_id, with_for_update=True)
     signed = money(-adjustment.amount if adjustment.adjustment_type == "credit" else adjustment.amount)
@@ -497,7 +508,7 @@ def decide_adjustment(
     )
     session.commit()
     session.refresh(adjustment)
-    return to_adjustment(request, adjustment)
+    return _adjustment_view(request, session, adjustment)
 
 
 # --- TMF635 Usage ---------------------------------------------------------

@@ -4,7 +4,7 @@ import { ApiError } from "../api";
 import type { Api } from "../api";
 import { qs } from "../api";
 import { ConfirmDialog, DataTable, Metric, Placeholder, Skeleton, StatusBadge } from "../components";
-import { inr, partyName, whenTime } from "../format";
+import { actorLabel, inr, partyName, whenTime } from "../format";
 import type { Account, Adjustment, AgentRun, AuditEntry } from "../types";
 
 type Queue = "credits" | "unbars" | "plans";
@@ -102,7 +102,11 @@ export function OpsDashboard({
           <p className="muted">Ops has no customer chat. This screen approves proposals and reads the log.</p>
         </div>
       </header>
-      {error ? <p className="error">{error}</p> : null}
+      {error ? (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      ) : null}
       {focus ? (
         <article className="focus-card">
           <p className="eyebrow">Account in focus</p>
@@ -114,7 +118,7 @@ export function OpsDashboard({
         </article>
       ) : null}
       {loading ? <Skeleton rows={3} label="Loading the control tower" /> : null}
-      {!loading && (section === "queue" || section === "overview") ? (
+      {!loading && !error && (section === "queue" || section === "overview") ? (
         <>
           <div className="metrics">
             <Metric label="Open disputes" value={openDisputes ?? "—"} hint="Status open" />
@@ -163,7 +167,8 @@ export function OpsDashboard({
                         </div>
                         <p>{item.reason}</p>
                         <p className="muted">
-                          Proposed by {item.proposedBy} · {whenTime(item.creationDate)} · Status: {item.status}
+                          {item.billingAccount.name ? `${item.billingAccount.name} · ` : ""}
+                          Proposed by {actorLabel(item.proposedBy)} · {whenTime(item.creationDate)}
                         </p>
                       </div>
                       <div className="decide">
@@ -204,14 +209,10 @@ export function OpsDashboard({
               )
             ) : null}
             {queue === "unbars" ? (
-              <p className="empty">
-                No unbar proposals. The copilot cannot unbar a line, and Phase 1 has no unbar endpoint. Credits use the existing approve endpoint, which records the approver and refuses a second decision.
-              </p>
+              <p className="empty">No unbar proposals. Unbars are a Phase 4 placeholder. Credits stay on this queue until ops confirms them.</p>
             ) : null}
             {queue === "plans" ? (
-              <p className="empty">
-                No plan-change proposals. The copilot cannot change a plan. That proposal type is not in the ledger. Credit approve and reject stay on the Phase 1 endpoint.
-              </p>
+              <p className="empty">No plan-change proposals. Plan changes are a Phase 4 placeholder.</p>
             ) : null}
           </section>
           <div className="placeholders">
@@ -224,7 +225,7 @@ export function OpsDashboard({
           </div>
         </>
       ) : null}
-      {!loading && section === "runs" ? (
+      {!loading && !error && section === "runs" ? (
         <section className="panel" aria-label="Recent agent runs">
           <h2>Recent agent runs</h2>
           <DataTable
@@ -248,7 +249,7 @@ export function OpsDashboard({
           />
         </section>
       ) : null}
-      {!loading && section === "audit" ? (
+      {!loading && !error && section === "audit" ? (
         <section className="panel" aria-label="Audit log">
           <h2>Audit log</h2>
           <DataTable

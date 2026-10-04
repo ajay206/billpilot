@@ -7,6 +7,8 @@ import type { PolicySection, Proposed } from "./types";
 
 const CITATION = /\[([A-Za-z0-9._-]+\.md) § ([^\]\n]+?)\]/g;
 
+export type CitationRef = { doc: string; section: string };
+
 export function AnswerText({
   text,
   onCite,
@@ -15,21 +17,40 @@ export function AnswerText({
   onCite: (doc: string, section: string) => void;
 }) {
   const parts: ReactNode[] = [];
+  const seen = new Set<string>();
   let last = 0;
   for (const match of text.matchAll(CITATION)) {
     const index = match.index ?? 0;
     if (index > last) parts.push(text.slice(last, index));
     const doc = match[1];
     const section = match[2];
-    parts.push(
-      <button key={`${doc}-${section}-${index}`} type="button" className="cite" onClick={() => onCite(doc, section)}>
-        {doc} · {section}
-      </button>,
-    );
+    const key = `${doc}\u0000${section}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      parts.push(
+        <button key={`${doc}-${section}-${index}`} type="button" className="cite" onClick={() => onCite(doc, section)}>
+          {doc} · {section}
+        </button>,
+      );
+    }
     last = index + match[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));
   return <p className="answer-text">{parts}</p>;
+}
+
+/** Chips for citations that are not already drawn inside the answer text. */
+export function extraCitations(items: CitationRef[] | undefined, answer: string): CitationRef[] {
+  const seen = new Set<string>();
+  const extra: CitationRef[] = [];
+  for (const item of items ?? []) {
+    const key = `${item.doc}\u0000${item.section}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (answer.includes(`[${item.doc} § ${item.section}]`)) continue;
+    extra.push(item);
+  }
+  return extra;
 }
 
 export function StatusBadge({ status }: { status?: string | null }) {

@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from billpilot.auth.demo import DEMO_USERS, ensure_demo_users
+from billpilot.auth.demo import DEMO_USERS, align_demo_holders, ensure_demo_users
 from billpilot.auth.session import read_session, sign_session
 from billpilot.auth.throttle import FailureLimiter
 from billpilot.config import get_settings
@@ -104,6 +104,36 @@ def test_ensure_demo_users_does_not_duplicate(session: Session):
     assert ensure_demo_users(session) == 0
     count = session.execute(text("SELECT COUNT(*) FROM users")).scalar_one()
     assert count == len(DEMO_USERS)
+
+
+def test_demo_holder_names_match_sign_in_and_realign(session: Session):
+    holders = session.execute(
+        text(
+            "SELECT customer_number, given_name, family_name FROM customers "
+            "WHERE customer_number IN ('CUST-000001', 'CUST-000002', 'CUST-000003', 'CUST-000005') "
+            "ORDER BY customer_number"
+        )
+    ).all()
+    by_number = {row.customer_number: (row.given_name, row.family_name) for row in holders}
+    assert by_number["CUST-000001"] == ("Priya", "Sharma")
+    assert by_number["CUST-000003"] == ("Arjun", "Mehta")
+    assert by_number["CUST-000005"] == ("Neha", "Iyer")
+    neighbour = by_number["CUST-000002"]
+    session.execute(
+        text("UPDATE customers SET given_name = 'Isaac', family_name = 'Bakshi' WHERE customer_number = 'CUST-000001'")
+    )
+    session.commit()
+    assert align_demo_holders(session) == 1
+    session.commit()
+    restored = session.execute(
+        text("SELECT given_name, family_name FROM customers WHERE customer_number = 'CUST-000001'")
+    ).one()
+    assert (restored.given_name, restored.family_name) == ("Priya", "Sharma")
+    untouched = session.execute(
+        text("SELECT given_name, family_name FROM customers WHERE customer_number = 'CUST-000002'")
+    ).one()
+    assert (untouched.given_name, untouched.family_name) == neighbour
+    assert align_demo_holders(session) == 0
 
 
 def test_login_sets_an_httponly_cookie_and_audits(client: TestClient, session: Session):

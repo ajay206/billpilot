@@ -89,6 +89,20 @@ def test_a_cited_advice_answer_is_kept():
     assert citations == [{"doc": "billing-policy.md", "section": "Late fee"}]
 
 
+def test_a_repeated_citation_is_kept_once():
+    retrieved = [{"doc": "roaming.md", "section": "When roaming charges apply"}]
+    marker = "[roaming.md § When roaming charges apply]"
+    kept, grounded, citations = screen_output(
+        f"Voice outside the home network is roaming. {marker} {marker}",
+        ["roaming usage"],
+        retrieved,
+        "What are the roaming rules?",
+    )
+    assert grounded is True
+    assert kept.count(marker) == 1
+    assert citations == [{"doc": "roaming.md", "section": "When roaming charges apply"}]
+
+
 def test_a_credit_proposal_must_stay_pending():
     applied = {"type": "credit", "id": "1", "status": "applied", "amount": "10.00", "applied": True}
     pending = {"type": "credit", "id": "1", "status": "pending_approval", "amount": "10.00", "applied": False}

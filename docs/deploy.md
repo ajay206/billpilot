@@ -163,7 +163,7 @@ If the service is already deployed from an older image, do this instead of creat
 4. Leave `API_KEY_CUSTOMER`, `API_KEY_CSR`, and `API_KEY_OPS` if you still want curl to work. The UI does not send them.
 5. Save and deploy the new image. Do not drop the Neon database and do not clear `customers`.
 
-On boot the container runs `billpilot migrate`, which creates the empty `users` table, then `billpilot seed-if-empty`. If `customers` already has rows, the billing ledger is skipped. The same command inserts any missing demo user (Priya, Arjun, Neha, Ananya, Vikram, Meera). A later boot finds those usernames and does not reset their hashes. Sign-in works as soon as `/health` is 200. Old persona buttons are gone; use the login page.
+On boot the container runs `billpilot migrate`, which creates the empty `users` table, then `billpilot seed-if-empty`. If `customers` already has rows, the billing ledger is skipped. The same command inserts any missing demo user (Priya, Arjun, Neha, Ananya, Vikram, Meera) and sets the holder names on `CUST-000001`, `CUST-000003`, and `CUST-000005` to Priya Sharma, Arjun Mehta, and Neha Iyer. Other customers stay as they are. A later boot finds those usernames and does not reset their hashes, and it does not rename a holder who already matches. Sign-in works as soon as `/health` is 200. Old persona buttons are gone; use the login page.
 
 ### Demo mode and a real model
 

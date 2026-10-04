@@ -175,6 +175,7 @@ a { color: var(--accent-deep); }
 
 .env-badge {
   margin: 0;
+  width: fit-content;
   white-space: nowrap;
   background: var(--amber-soft);
   color: var(--amber);
@@ -183,6 +184,7 @@ a { color: var(--accent-deep); }
   font-size: 0.75rem;
   font-weight: 600;
 }
+.login-brand .env-badge { align-self: flex-start; }
 
 .user-menu { position: relative; }
 .user-button {

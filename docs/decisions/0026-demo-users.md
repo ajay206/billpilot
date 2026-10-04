@@ -10,6 +10,8 @@ The published demo passwords are `demo-priya`, `demo-arjun`, `demo-neha`, `demo-
 
 Customer users: Priya Sharma (`CUST-000001`), Arjun Mehta (`CUST-000003`), Neha Iyer (`CUST-000005`). CSR users: Ananya Rao (`CSR-A`), Vikram Nair (`CSR-B`). Ops: Meera Kapoor. Even customer indexes are `CSR-A`, which is the generator's existing rule, so Priya's account is on Ananya's book.
 
+Those three customer rows use the sign-in names. The generator still draws a Faker name for the index, then replaces it, so the rest of the ledger stays on the same sequence. `seed-if-empty` runs the same rename on a database that was seeded before this change. It updates only those three holders, and a second boot finds the names already match.
+
 ## Alternatives
 
 - An admin role that can create users. Nothing in the product asks for user administration. Ops already reads every account and is the only approver. A fourth role would be a key with no screen.

@@ -41,7 +41,7 @@ await page.evaluate(async () => {
       customerBill: { id: bill.id },
       adjustmentType: "credit",
       amount: { unit: "INR", value: "10.00" },
-      reason: "Screenshot demo: proposed credit, still pending approval.",
+      reason: `Duplicate caller tune charge on ${bill.billNo}.`,
     }),
   });
   if (!proposed.ok) {

@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from billpilot.auth.passwords import hash_password
-from billpilot.models import User
+from billpilot.models import Customer, User
 
 _NAMESPACE = uuid.uuid5(uuid.NAMESPACE_DNS, "billpilot.demo.users")
 
@@ -92,8 +92,46 @@ DEMO_USERS: tuple[DemoUser, ...] = (
 )
 
 
+def holder_name_for_index(index: int) -> tuple[str, str] | None:
+    """Given and family name for a seeded customer who also has a demo login.
+
+    Index 0 is CUST-000001. The generator still draws a Faker name for that
+    index, then replaces it, so later customers keep the same sequence.
+    """
+    number = f"CUST-{index + 1:06d}"
+    for spec in DEMO_USERS:
+        if spec.role == "customer" and spec.customer_number == number:
+            given, _, family = spec.display_name.partition(" ")
+            return given, family
+    return None
+
+
+def align_demo_holders(session: Session) -> int:
+    """Point the demo customer rows at the sign-in names. Safe to run again.
+
+    An existing database already has Faker names. Boot updates only the three
+    demo holders and leaves every other customer alone.
+    """
+    updated = 0
+    for spec in DEMO_USERS:
+        if spec.role != "customer" or not spec.customer_number:
+            continue
+        given, _, family = spec.display_name.partition(" ")
+        customer = session.scalar(select(Customer).where(Customer.customer_number == spec.customer_number))
+        if customer is None or (customer.given_name == given and customer.family_name == family):
+            continue
+        customer.given_name = given
+        customer.family_name = family
+        updated += 1
+    return updated
+
+
 def ensure_demo_users(session: Session) -> int:
-    """Insert any demo user that is not already there. Does not touch billing rows."""
+    """Insert any demo user that is not already there, and align holder names.
+
+    Billing rows other than those three names are left as they are. Password
+    hashes of existing users are not reset.
+    """
     present = set(session.scalars(select(User.username)))
     inserted = 0
     now = datetime.now(UTC)
@@ -113,6 +151,7 @@ def ensure_demo_users(session: Session) -> int:
             )
         )
         inserted += 1
-    if inserted:
+    renamed = align_demo_holders(session)
+    if inserted or renamed:
         session.commit()
     return inserted

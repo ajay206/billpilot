@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { Api } from "../api";
 import { qs } from "../api";
-import { AnswerText, DataTable, Metric, PolicyDrawer, ProposalCard, Skeleton, StatusBadge } from "../components";
+import { AnswerText, DataTable, Metric, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
 import { inr, partyName, when } from "../format";
 import type { Account, Adjustment, Bill, ChatResponse, Citation, Dispute, Payment, Proposed, ToolCall, Usage } from "../types";
 
@@ -45,6 +45,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [citation, setCitation] = useState<{ doc: string; section: string } | null>(null);
 
   async function loadAccount(current: Api) {
@@ -76,9 +77,10 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
   useEffect(() => {
     let cancel = false;
     setLoading(true);
+    setLoadError(null);
     loadAccount(api)
       .catch((reason: Error) => {
-        if (!cancel) setError(reason.message);
+        if (!cancel) setLoadError(reason.message);
       })
       .finally(() => {
         if (!cancel) setLoading(false);
@@ -131,10 +133,14 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
           </div>
           {account ? <StatusBadge status={account.state} /> : null}
         </header>
-        {error ? <p className="error">{error}</p> : null}
+        {loadError ? (
+          <p className="error" role="alert">
+            {loadError}
+          </p>
+        ) : null}
         {loading ? <Skeleton rows={5} label="Loading your account" /> : null}
-        {!loading && !account ? <p className="empty">No account is linked to this sign-in.</p> : null}
-        {!loading && account && section === "overview" ? (
+        {!loading && !account && !loadError ? <p className="empty">No account is linked to this sign-in.</p> : null}
+        {!loading && !loadError && account && section === "overview" ? (
           <>
             <div className="metrics">
               <Metric label="Latest bill" value={latest ? inr(latest.taxIncludedAmount) : "—"} hint={latest?.billNo} />
@@ -169,7 +175,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
             ) : null}
           </>
         ) : null}
-        {!loading && account && section === "bills" ? (
+        {!loading && !loadError && account && section === "bills" ? (
           <DataTable
             label="Bills"
             rows={bills}
@@ -183,7 +189,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
             ]}
           />
         ) : null}
-        {!loading && account && section === "usage" ? (
+        {!loading && !loadError && account && section === "usage" ? (
           <DataTable
             label="Usage"
             rows={usage}
@@ -195,7 +201,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
             ]}
           />
         ) : null}
-        {!loading && account && section === "payments" ? (
+        {!loading && !loadError && account && section === "payments" ? (
           <DataTable
             label="Payments"
             rows={payments}
@@ -208,7 +214,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
             ]}
           />
         ) : null}
-        {!loading && account && section === "disputes" ? (
+        {!loading && !loadError && account && section === "disputes" ? (
           <div className="stack">
             {disputes.length === 0 && adjustments.length === 0 ? (
               <p className="empty">No disputes. Ask the assistant if a charge looks wrong. A credit stays pending until ops approves it.</p>
@@ -234,8 +240,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
                 <p className="proposal-amount">{inr(adjustment.amount)}</p>
                 <p>{adjustment.reason}</p>
                 <p className="proposal-status">
-                  Status: {adjustment.status}
-                  {adjustment.decidedBy ? ` · decided by ${adjustment.decidedBy}` : ""}
+                  {adjustment.decidedBy ? `Decided by ${adjustment.decidedBy}` : "Waiting for ops to approve or reject it."}
                 </p>
               </article>
             ))}
@@ -271,9 +276,9 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
               {turn.proposed?.map((item) => (
                 <ProposalCard key={`${item.type}-${item.id}`} item={item} />
               ))}
-              {turn.citations && turn.citations.length > 0 ? (
+              {extraCitations(turn.citations, turn.text).length > 0 ? (
                 <div className="cite-row">
-                  {turn.citations.map((item) => (
+                  {extraCitations(turn.citations, turn.text).map((item) => (
                     <button key={`${item.doc}-${item.section}`} type="button" className="cite" onClick={() => setCitation(item)}>
                       {item.doc} · {item.section}
                     </button>
@@ -283,7 +288,11 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
             </article>
           ))}
           {busy ? <p className="muted">Looking through the bill and the policy pages…</p> : null}
-          {error ? <p className="error">{error}</p> : null}
+          {error ? (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          ) : null}
         </div>
         <form
           className="composer"

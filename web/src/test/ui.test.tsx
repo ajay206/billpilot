@@ -191,13 +191,17 @@ describe("shared controls", () => {
     const onCite = vi.fn();
     render(
       <>
-        <AnswerText text="Roaming is rated at the plan rate. [roaming.md § When roaming charges apply]" onCite={onCite} />
+        <AnswerText
+          text="Roaming is rated at the plan rate. [roaming.md § When roaming charges apply] [roaming.md § When roaming charges apply]"
+          onCite={onCite}
+        />
         <ProposalCard item={{ type: "credit", id: "adj-1", status: "pending_approval", amount: "18.00" }} />
         <StatusBadge status="pending_approval" />
       </>,
     );
     await user.click(screen.getByRole("button", { name: /roaming.md/i }));
     expect(onCite).toHaveBeenCalledWith("roaming.md", "When roaming charges apply");
+    expect(screen.getAllByRole("button", { name: /roaming.md/i })).toHaveLength(1);
     expect(screen.getAllByText("Pending approval").length).toBeGreaterThan(0);
     expect(screen.getByText("Status: pending_approval")).toBeInTheDocument();
     expect(screen.getByText("₹18.00")).toBeInTheDocument();

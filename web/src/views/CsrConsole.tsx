@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { Api } from "../api";
 import { qs } from "../api";
-import { AnswerText, DataTable, Placeholder, PolicyDrawer, ProposalCard, Skeleton, StatusBadge } from "../components";
+import { AnswerText, DataTable, Placeholder, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
 import { characteristic, inr, partyName, when, whenTime } from "../format";
 import type {
   Account,
@@ -56,6 +56,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [citation, setCitation] = useState<{ doc: string; section: string } | null>(null);
   const [openTools, setOpenTools] = useState<string | null>(null);
 
@@ -73,6 +74,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
     }
     let cancel = false;
     setLoading(true);
+    setLoadError(null);
     const id = account.id;
     Promise.all([
       api.get<Bill[]>(qs("/tmf-api/customerBillManagement/v4/customerBill", { "billingAccount.id": id, limit: 24 })),
@@ -92,7 +94,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
         setAdjustments(adjustmentRows.data);
       })
       .catch((reason: Error) => {
-        if (!cancel) setError(reason.message);
+        if (!cancel) setLoadError(reason.message);
       })
       .finally(() => {
         if (!cancel) setLoading(false);
@@ -121,7 +123,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
         if (!cancel) setLines(result.data);
       })
       .catch((reason: Error) => {
-        if (!cancel) setError(reason.message);
+        if (!cancel) setLoadError(reason.message);
       });
     return () => {
       cancel = true;
@@ -204,7 +206,12 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
               ))}
             </div>
             {loading ? <Skeleton rows={4} label="Loading account" /> : null}
-            {!loading && tab === "bills" ? (
+            {loadError ? (
+              <p className="error" role="alert">
+                {loadError}
+              </p>
+            ) : null}
+            {!loading && !loadError && tab === "bills" ? (
               <DataTable
                 label="Bills"
                 rows={bills}
@@ -218,7 +225,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 ]}
               />
             ) : null}
-            {!loading && tab === "lines" ? (
+            {!loading && !loadError && tab === "lines" ? (
               <DataTable
                 label="Lines"
                 rows={lines}
@@ -230,7 +237,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 ]}
               />
             ) : null}
-            {!loading && tab === "usage" ? (
+            {!loading && !loadError && tab === "usage" ? (
               <DataTable
                 label="Usage"
                 rows={usage}
@@ -248,7 +255,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 ]}
               />
             ) : null}
-            {!loading && tab === "payments" ? (
+            {!loading && !loadError && tab === "payments" ? (
               <DataTable
                 label="Payments"
                 rows={payments}
@@ -261,7 +268,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 ]}
               />
             ) : null}
-            {!loading && tab === "treatment" ? (
+            {!loading && !loadError && tab === "treatment" ? (
               <div className="treatment">
                 {account.treatment ? (
                   <>
@@ -279,7 +286,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 {account.exemption ? <p>Exemption: {account.exemption.reason}</p> : null}
               </div>
             ) : null}
-            {!loading && tab === "tickets" ? (
+            {!loading && !loadError && tab === "tickets" ? (
               <DataTable
                 label="Tickets"
                 rows={tickets}
@@ -292,7 +299,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 ]}
               />
             ) : null}
-            {!loading && tab === "disputes" ? (
+            {!loading && !loadError && tab === "disputes" ? (
               <div className="stack">
                 {disputes.map((dispute) => (
                   <article key={dispute.id} className="proposal">
@@ -340,9 +347,9 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
               {turn.proposed?.map((item) => (
                 <ProposalCard key={`${item.type}-${item.id}`} item={item} />
               ))}
-              {turn.citations && turn.citations.length > 0 ? (
+              {extraCitations(turn.citations, turn.text).length > 0 ? (
                 <div className="cite-row">
-                  {turn.citations.map((item) => (
+                  {extraCitations(turn.citations, turn.text).map((item) => (
                     <button key={`${item.doc}-${item.section}`} type="button" className="cite" onClick={() => setCitation(item)}>
                       {item.doc} · {item.section}
                     </button>
@@ -376,7 +383,11 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
             </article>
           ))}
           {busy ? <p className="muted">Reading the account…</p> : null}
-          {error ? <p className="error">{error}</p> : null}
+          {error ? (
+            <p className="error" role="alert">
+              {error}
+            </p>
+          ) : null}
         </div>
         <form
           className="composer"

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from billpilot.agent.guardrails import collapse_duplicate_citations, dedupe_citations
 from billpilot.agent.loop import run_agent
 from billpilot.agent.model import build_model
 from billpilot.agent.store import decision_tier
@@ -90,11 +91,11 @@ def agent_chat(
         bss.close()
     return AgentChatResponse(
         runId=result.run_id,
-        answer=result.answer,
+        answer=collapse_duplicate_citations(result.answer),
         refusal=result.refusal,
         refusalReason=result.refusal_reason,
         grounded=result.grounded,
-        citations=result.citations,
+        citations=dedupe_citations(result.citations),
         proposedActions=result.proposed_actions,
         toolCalls=[_tool_view(call) for call in result.tool_calls],
         promptTokens=result.prompt_tokens,
