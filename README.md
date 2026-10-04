@@ -2,7 +2,7 @@
 
 BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness.
 
-There is still no message broker and no user interface. Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one.
+Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one. The UI, Langfuse as a product, Kafka, reports, onboarding, and launch are later phases. See [Roadmap](#roadmap).
 
 ## Synthetic data only
 
@@ -27,9 +27,11 @@ flowchart LR
     DB[(PostgreSQL and pgvector)]
     Gen[Synthetic generator]
   end
-  subgraph later [Later]
-    UI[UI]
-    Broker[Kafka]
+  subgraph later [Later phases]
+    UI["Phase 3 UI and Langfuse"]
+    Broker["Phase 4 Kafka and reports"]
+    Onboard[Phase 5 onboarding]
+    Launch[Phase 6 launch]
   end
   CLI --> Loop
   Chat --> Loop
@@ -169,6 +171,7 @@ All TMF-shaped routes are under `/tmf-api`. Lists accept `offset` and `limit` (d
 | GET, POST | `/troubleTicket/v4/troubleTicket` | read: all three; create: csr only |
 | GET | `/prepayBalanceManagement/v4/bucket` and `/balance` | TMF654 buckets; `/balance` is the deck's name for the same read |
 | GET | `/accountManagement/v4/billingAccount` | all three, within scope; treatment stage, status, hold, exemption |
+| GET | `/accountManagement/v4/fraudFlag` | all three, within scope; synthetic roaming-spike and SIM-swap flags, read only |
 | GET | `/ops/auditLog` | ops |
 | POST | `/agent/chat` | the API key chooses the persona; body is `message` and optional `accountId` |
 | GET | `/health` | public |
@@ -237,7 +240,7 @@ LLM_API_KEY=sk-...
 
 Any host that accepts `POST {LLM_BASE_URL}/chat/completions` works. Do not add a local model runtime. Embeddings default to `EMBEDDING_BACKEND=hash` (no download). `EMBEDDING_BACKEND=api` calls `{LLM_BASE_URL}/embeddings` and must return 256 dimensions. Reindex after changing it: `billpilot knowledge reindex`.
 
-Langfuse is off. Set `LANGFUSE_ENABLED=true` and install the extra with `pip install -e ".[tracing]"` only if you want traces. A missing package or a failed export does not change the answer.
+Langfuse is a Phase 3 deliverable. A hook exists and defaults to off (`LANGFUSE_ENABLED`). Install it with `pip install -e ".[tracing]"` only if you want a single trace per turn. A missing package or a failed export does not change the answer. Per-step traces are not built yet.
 
 ### Ask
 
@@ -261,7 +264,7 @@ curl -s -X POST -H 'X-API-Key: dev-ops-key' -H 'Content-Type: application/json' 
 
 ### Evals
 
-The harness builds 67 labelled cases from `data/ground_truth.json` (or from the generator if that file is missing). Counts: guardrail 15, policy 13, disputes 12, bill explanation 7, treatment 6, entitlements 5, CSR runbook 4, payments 3, VAS and plan 2.
+The harness builds 67 labelled cases from `data/ground_truth.json` (or from the generator if that file is missing). Counts: guardrail 15, policy 13, disputes 8, bill explanation 7, treatment 6, entitlements 5, CSR runbook 4, revenue assurance and fraud 4, payments 3, VAS and plan 2.
 
 CI runs the harness inside pytest against the fake model. That smoke test checks that guardrail cases are refused, that no case calls an approve tool, and that a report file is written. It is not a quality score.
 
@@ -294,12 +297,21 @@ python -m billpilot.evals --estimate-only --ground-truth data/ground_truth.json
 
 ## Decisions
 
-Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, optional Langfuse, and the treatment read.
+Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, the dormant Langfuse hook, the treatment read, and the fraud-flag read.
 
-## Deferred
+Ops still approves a credit on the existing endpoint. That audit row is where the approver, amount, and timestamp are recorded. The copilot's own audit row records the proposal (`decision=propose`), not an approver, because the copilot is never the approver.
 
-- Kafka (or Redpanda) and a consumer for failed downstream work. `NullPublisher` is the stand-in. Topics already named: `usage.rated`, `bill.run`, `payment.events`, `treatment.actions`, `entitlement.changes`, `system.errors`.
-- Dashboards, onboarding, and bulk migration.
-- A user interface.
-- Certified TM Forum conformance, split GST, and multi-replica rate limits.
-- An approve tool. Ops keeps the existing approval endpoint. The copilot must not be the approver.
+## Roadmap
+
+The deck's later phases were reordered. This is the plan the repo follows now.
+
+| Phase | What it is | Status |
+| --- | --- | --- |
+| 1 | Postgres ledger, synthetic generator, TMF-shaped mock APIs, approval queue, audit log, Docker Compose, CI | Done, on `main` |
+| 2 | Tool-calling copilot, RAG with citations, guardrails, propose-not-apply, eval harness | This branch |
+| 3 | UI (customer chat, CSR console, ops dashboard), free-tier deploy, Langfuse tracing | Not started |
+| 4 | Ops layer: Kafka or Redpanda, failure dashboard, daily and monthly reports, CSR troubleshooting AI (paste an error, get numbered steps) | Not started. `NullPublisher` is the stand-in. Topics already named: `usage.rated`, `bill.run`, `payment.events`, `treatment.actions`, `entitlement.changes`, `system.errors` |
+| 5 | Onboarding and migration: one API call, bulk dry run, reconciliation, idempotent re-runs, rollback | Not started |
+| 6 | Integration and launch | Not started |
+
+Still deferred inside those phases, not scheduled on their own: certified TM Forum conformance, split GST, and multi-replica rate limits. An approve tool stays out. Ops keeps the existing approval endpoint.

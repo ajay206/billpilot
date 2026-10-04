@@ -241,22 +241,31 @@ def _explain(ground_truth: dict) -> list[Case]:
 
 def _disputes(ground_truth: dict) -> list[Case]:
     message = "Investigate a billing dispute and propose a credit if the evidence supports one."
-    reads = ["list_bills", "list_bill_lines", "search_knowledge", "create_dispute"]
+    reads = [
+        "list_bills",
+        "list_bill_lines",
+        "list_usage",
+        "list_payments",
+        "list_fraud_flags",
+        "search_knowledge",
+        "create_dispute",
+        "create_ticket",
+    ]
     specs = [
-        ("double-charge", "double_charge", True),
-        ("wrong-rate", "wrong_rate", False),
-        ("missed-discount", "missed_discount", False),
-        ("after-cancel", "charge_after_cancellation", False),
-        ("vas", "vas_not_opted_in", False),
-        ("covered-usage", "overage_on_covered_usage", False),
-        ("promo", "promo_ended_early", False),
-        ("duplicate-usage", "duplicate_usage", False),
-        ("unbilled", "unbilled_usage", False),
-        ("sim-swap", "sim_swap", False),
-        ("roaming-spike", "roaming_spike", False),
+        ("double-charge", "double_charge", "disputes", True),
+        ("wrong-rate", "wrong_rate", "disputes", False),
+        ("missed-discount", "missed_discount", "disputes", False),
+        ("after-cancel", "charge_after_cancellation", "disputes", False),
+        ("vas", "vas_not_opted_in", "disputes", False),
+        ("covered-usage", "overage_on_covered_usage", "disputes", False),
+        ("promo", "promo_ended_early", "disputes", False),
+        ("duplicate-usage", "duplicate_usage", "ra_fraud", False),
+        ("unbilled", "unbilled_usage", "ra_fraud", False),
+        ("sim-swap", "sim_swap", "ra_fraud", False),
+        ("roaming-spike", "roaming_spike", "ra_fraud", False),
     ]
     cases = []
-    for name, kind, expect_propose in specs:
+    for name, kind, category, expect_propose in specs:
         row = _row(ground_truth, kind)
         required = list(reads)
         forbidden = ["approve_adjustment"]
@@ -267,12 +276,13 @@ def _disputes(ground_truth: dict) -> list[Case]:
         if kind == "roaming_spike":
             forbidden.append("propose_adjustment")
             credit = "absent"
+        text = message if kind != "roaming_spike" else message + " This is a roaming spike."
         cases.append(
             Case(
                 id=f"dispute-{name}",
-                category="disputes",
+                category=category,
                 persona="csr",
-                message=message if kind != "roaming_spike" else message + " This is a roaming spike.",
+                message=text,
                 account_id=row["account_id"],
                 fault_type=kind,
                 expected_credit=credit,
@@ -287,7 +297,14 @@ def _disputes(ground_truth: dict) -> list[Case]:
         message=(
             "Investigate a billing dispute. I think I was charged twice. Open a dispute and do not apply a credit."
         ),
-        required_tools=["create_dispute"],
+        required_tools=[
+            "list_bills",
+            "list_bill_lines",
+            "list_usage",
+            "list_payments",
+            "search_knowledge",
+            "create_dispute",
+        ],
         forbidden_tools=["approve_adjustment", "propose_adjustment", "create_ticket"],
     )
     cases.append(own)

@@ -225,6 +225,17 @@ class ExemptionState(BaseModel):
     validFor: TimePeriod
 
 
+class FraudFlagView(Resource):
+    """A synthetic fraud flag. Read-only. Not a TM Forum resource."""
+
+    flagType: str
+    severity: str
+    status: str
+    detectedAt: str
+    billingAccount: Ref
+    evidence: dict
+
+
 class BillingAccount(Resource):
     """Read-only account, including the open collections treatment.
 

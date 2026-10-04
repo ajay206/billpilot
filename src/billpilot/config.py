@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     # Where the CLI sends tool calls. The API process calls itself in-process instead.
     bss_base_url: str = "http://127.0.0.1:8000"
 
-    agent_max_tool_calls: int = 8
+    agent_max_tool_calls: int = 12
     agent_max_tokens: int = 16000
     agent_tool_result_chars: int = 6000
 

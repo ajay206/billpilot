@@ -24,6 +24,7 @@ from billpilot.api.present import (
     to_bucket,
     to_dispute,
     to_entitlement_product,
+    to_fraud_flag,
     to_offering,
     to_payment,
     to_rate,
@@ -43,6 +44,7 @@ from billpilot.api.schemas import (
     CustomerBill,
     CustomerBillDispute,
     DisputeCreate,
+    FraudFlagView,
     Payment,
     PaymentAttempt,
     Product,
@@ -63,6 +65,7 @@ from billpilot.models import (
     Dispute,
     Entitlement,
     EntitlementBalance,
+    FraudFlag,
     Invoice,
     InvoiceLine,
     Subscription,
@@ -875,6 +878,31 @@ def list_buckets(
     ).all()
     _page_headers(response, total, len(rows))
     return [to_bucket(request, balance, entitlement) for balance, entitlement in rows]
+
+
+# --- Fraud flags ----------------------------------------------------------
+
+
+@router.get(
+    "/accountManagement/v4/fraudFlag",
+    response_model=list[FraudFlagView],
+    tags=["Billing account"],
+)
+def list_fraud_flags(
+    request: Request,
+    response: Response,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(get_principal),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    account_id: uuid.UUID | None = Query(None, alias="billingAccount.id"),
+):
+    """Synthetic roaming-spike and SIM-swap flags. Read-only, scoped like any other account read."""
+    stmt = _account_filter(session, principal, select(FraudFlag), FraudFlag.account_id, account_id)
+    total = _count(session, stmt)
+    rows = session.scalars(stmt.order_by(FraudFlag.detected_at, FraudFlag.id).offset(offset).limit(limit)).all()
+    _page_headers(response, total, len(rows))
+    return [to_fraud_flag(request, row) for row in rows]
 
 
 # --- Billing account and treatment ----------------------------------------

@@ -19,6 +19,7 @@ from billpilot.api.schemas import (
     CustomerBill,
     CustomerBillDispute,
     ExemptionState,
+    FraudFlagView,
     Money,
     Payment,
     PaymentAttempt,
@@ -42,6 +43,7 @@ from billpilot.models import (
     Dispute,
     Entitlement,
     EntitlementBalance,
+    FraudFlag,
     Invoice,
     InvoiceLine,
     Subscription,
@@ -515,6 +517,20 @@ def to_billing_account(
         treatment=treatment_view,
         exemption=exemption_view,
         relatedParty=[_party(customer)],
+    )
+
+
+def to_fraud_flag(request: Request, row: FraudFlag) -> FraudFlagView:
+    return FraudFlagView(
+        id=str(row.id),
+        href=resource_href(request, f"accountManagement/v4/fraudFlag/{row.id}"),
+        type_name="FraudFlag",
+        flagType=row.flag_type,
+        severity=row.severity,
+        status=row.status,
+        detectedAt=row.detected_at.isoformat(),
+        billingAccount=ref(request, f"accountManagement/v4/billingAccount/{row.account_id}"),
+        evidence=row.evidence,
     )
 
 

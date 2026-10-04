@@ -16,11 +16,13 @@ _PLANS = {
     "dispute": [
         "list_bills",
         "list_bill_lines",
+        "list_usage",
         "list_payments",
+        "list_fraud_flags",
         "search_knowledge",
         "create_dispute",
-        "propose_adjustment",
         "create_ticket",
+        "propose_adjustment",
     ],
     "policy": ["search_knowledge"],
     "treatment": ["get_treatment", "list_disputes", "list_payments", "search_knowledge"],
@@ -97,7 +99,7 @@ def _next(intent, user, available, messages, payloads):
     for name in _PLANS[intent]:
         if name not in available or name in called:
             continue
-        if name == "propose_adjustment" and _duplicate(lines) is None:
+        if name == "propose_adjustment" and (_duplicate(lines) is None or _credit_blocked(user, payloads)):
             continue
         if name == "list_bill_lines" and not bills:
             continue
@@ -220,9 +222,15 @@ def _dispute_answer(payloads) -> str:
         name = duplicate.get("name")
         amount = duplicate.get("amount")
         parts.append(f"The bill has a duplicate charge: two lines named {name} at {amount} INR.")
+    usage_rows = _as_list(_latest(payloads, "list_usage"))
+    flag_rows = _as_list(_latest(payloads, "list_fraud_flags"))
+    parts.extend(_usage_notes(usage_rows, flag_rows))
     dispute = _as_list(_latest(payloads, "create_dispute"))
     if dispute:
         parts.append(f"I opened a dispute with status {dispute[0].get('status')}.")
+    ticket = _as_list(_latest(payloads, "create_ticket"))
+    if ticket:
+        parts.append(f"I opened a ticket with status {ticket[0].get('status')} so treatment can hold.")
     credit = _as_list(_latest(payloads, "propose_adjustment"))
     if credit:
         parts.append(
@@ -304,6 +312,43 @@ def _monthly_fee(offering: dict) -> str | None:
         if price.get("priceType") == "recurring":
             return price.get("value")
     return None
+
+
+def _credit_blocked(user: str, payloads) -> bool:
+    if "roaming spike" in user.lower():
+        return True
+    flags = _as_list(_latest(payloads, "list_fraud_flags"))
+    return any(flag.get("flagType") in {"roaming_spike", "sim_swap"} for flag in flags)
+
+
+def _usage_notes(usage_rows: list, flags: list) -> list[str]:
+    """Sentences that only restate rows the tools returned."""
+    notes: list[str] = []
+    for row in usage_rows:
+        if row.get("ratingStatus") == "unbilled" or row.get("billed") == "false":
+            amount = row.get("ratedAmount")
+            if amount:
+                notes.append(f"Unbilled usage rated {amount} INR was not on the bill.")
+            else:
+                notes.append("Unbilled usage was not on the bill.")
+            break
+    sources: dict[str, int] = {}
+    duplicate = False
+    for row in usage_rows:
+        if row.get("ratingStatus") == "duplicate":
+            duplicate = True
+        source = row.get("sourceEventId")
+        if source:
+            sources[source] = sources.get(source, 0) + 1
+    if duplicate or any(count > 1 for count in sources.values()):
+        notes.append("Duplicate usage records share one source event.")
+    for flag in flags:
+        kind = flag.get("flagType")
+        if kind == "roaming_spike":
+            notes.append("A fraud flag marks a roaming spike. Do not auto-credit it.")
+        elif kind == "sim_swap":
+            notes.append("A fraud flag marks a SIM swap. Do not auto-credit or auto-bar from the flag alone.")
+    return notes
 
 
 def _duplicate(lines: list[dict]) -> dict | None:

@@ -12,3 +12,5 @@
 ## Why
 
 Tracing is for a person debugging a real run. It is not part of the correctness path. The system of record for a turn is `agent_runs`.
+
+The deck drew a Langfuse trace on every step. That product work moved to Phase 3, with the UI and the free-tier deploy. This hook stays so Phase 3 can turn traces on without rewriting the loop, and so a missing host cannot take the copilot down.

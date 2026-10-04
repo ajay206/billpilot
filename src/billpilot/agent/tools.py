@@ -28,6 +28,7 @@ PRODUCTS = "/tmf-api/productInventory/v4/product"
 TICKETS = "/tmf-api/troubleTicket/v4/troubleTicket"
 BALANCES = "/tmf-api/prepayBalanceManagement/v4/balance"
 ACCOUNTS = "/tmf-api/accountManagement/v4/billingAccount"
+FLAGS = "/tmf-api/accountManagement/v4/fraudFlag"
 AUDIT = "/ops/auditLog"
 
 _OBJECT = "object"
@@ -198,6 +199,12 @@ TOOLS: tuple[ToolSpec, ...] = (
         _CSR_ONLY,
     ),
     ToolSpec(
+        "list_fraud_flags",
+        "List roaming-spike and SIM-swap flags on the account. Read only. Do not auto-credit from a flag.",
+        _ACCOUNT,
+        _READ_ROLES,
+    ),
+    ToolSpec(
         "search_knowledge",
         "Search policy, tariff notes and CSR runbooks. Cite doc and section from the results.",
         _schema({"query": _STRING}, ["query"]),
@@ -366,7 +373,7 @@ class ToolExecutor:
                 params["billingAccount.id"] = account
             return self._project(self.bss.request("GET", LINES, params=params), _lines)
         if name == "list_usage":
-            params = {"limit": 15}
+            params = {"limit": 100}
             if account:
                 params["billingAccount.id"] = account
             if arguments.get("usage_type"):
@@ -466,6 +473,11 @@ class ToolExecutor:
                     "applied": body.get("status") == "applied",
                 }
             return status, body if status >= 400 else _adjustments(body), proposed, []
+        if name == "list_fraud_flags":
+            params = {"limit": 20}
+            if account:
+                params["billingAccount.id"] = account
+            return self._project(self.bss.request("GET", FLAGS, params=params), _flags)
         if name == "search_knowledge":
             results = self.search(str(arguments.get("query") or ""))
             return 200, {"results": results}, None, results
@@ -537,14 +549,72 @@ def _lines(body):
     ]
 
 
+def _characteristic(row: dict, name: str):
+    for item in row.get("usageCharacteristic") or []:
+        if item.get("name") == name:
+            return item.get("value")
+    return None
+
+
 def _usage(body):
-    return [
+    """Keep the rows a review needs, plus a few recent ones, inside the tool budget.
+
+    A full cycle can be longer than the model should read. Unbilled, duplicate,
+    roaming, and premium-rate rows are the ones the dispute and assurance
+    questions are about, so they are not dropped in favour of older filler.
+    """
+    projected = [
         {
             "id": row.get("id"),
             "usageDate": row.get("usageDate"),
             "usageType": row.get("usageType"),
             "description": row.get("description"),
             "status": row.get("status"),
+            "billed": _characteristic(row, "billed"),
+            "ratingStatus": _characteristic(row, "ratingStatus"),
+            "ratedAmount": _characteristic(row, "ratedAmount"),
+            "quantity": _characteristic(row, "quantity"),
+            "sourceEventId": _characteristic(row, "sourceEventId"),
+            "destination": _characteristic(row, "destination"),
+            "roamingCountry": _characteristic(row, "roamingCountry"),
+        }
+        for row in body
+    ]
+    flagged = [row for row in projected if _usage_matters(row)]
+    ordinary = [row for row in projected if not _usage_matters(row)]
+    chosen: list[dict] = []
+    seen: set[str] = set()
+    for row in flagged + ordinary[-8:]:
+        key = str(row.get("id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        chosen.append(row)
+    return chosen[:24]
+
+
+def _usage_matters(row: dict) -> bool:
+    rating = str(row.get("ratingStatus") or "")
+    destination = str(row.get("destination") or "")
+    return (
+        rating in {"unbilled", "duplicate"}
+        or str(row.get("billed") or "") == "false"
+        or row.get("usageType") == "roaming"
+        or destination == "premium-rate"
+    )
+
+
+def _flags(body):
+    if isinstance(body, dict):
+        body = [body]
+    return [
+        {
+            "id": row.get("id"),
+            "flagType": row.get("flagType"),
+            "severity": row.get("severity"),
+            "status": row.get("status"),
+            "detectedAt": row.get("detectedAt"),
+            "evidence": row.get("evidence"),
         }
         for row in body
     ]

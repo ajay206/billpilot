@@ -15,6 +15,9 @@ def test_allowlists_match_the_persona_and_never_include_approve():
     csr = {tool.name for tool in tools_for("csr")}
     ops = {tool.name for tool in tools_for("ops")}
     assert "approve_adjustment" not in TOOLS_BY_NAME
+    assert "list_fraud_flags" in customer
+    assert "list_fraud_flags" in csr
+    assert "list_fraud_flags" in ops
     assert "propose_adjustment" not in customer
     assert "create_ticket" not in customer
     assert "create_dispute" in customer

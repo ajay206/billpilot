@@ -76,6 +76,7 @@ def test_openapi_says_this_is_a_learning_mock(client: TestClient):
         TICKETS,
         BUCKETS,
         BALANCE,
+        "/tmf-api/accountManagement/v4/fraudFlag",
     ):
         assert path in paths
     assert f"{ADJUSTMENTS}/{{adjustment_id}}/approve" in paths
@@ -280,6 +281,34 @@ def test_adjustment_stays_pending_until_a_different_role_approves(client: TestCl
     assert "adjustment.propose" in actions
     assert "adjustment.apply" in actions
     assert "adjustment.reject" in actions
+
+
+def test_fraud_flags_follow_the_callers_accounts(client: TestClient, session: Session):
+    own = _demo_account(session)
+    visible = client.get(
+        "/tmf-api/accountManagement/v4/fraudFlag",
+        headers=CUSTOMER,
+        params={"billingAccount.id": own},
+    )
+    assert visible.status_code == 200
+    roaming = next(
+        row["account_id"]
+        for row in build_world(small_config()).ground_truth["anomalies"]
+        if row["type"] == "roaming_spike"
+    )
+    denied = client.get(
+        "/tmf-api/accountManagement/v4/fraudFlag",
+        headers=CUSTOMER,
+        params={"billingAccount.id": roaming},
+    )
+    assert denied.status_code == 403
+    flagged = client.get(
+        "/tmf-api/accountManagement/v4/fraudFlag",
+        headers=OPS,
+        params={"billingAccount.id": roaming},
+    )
+    assert flagged.status_code == 200
+    assert any(row["flagType"] == "roaming_spike" for row in flagged.json())
 
 
 def test_customer_rate_limit_returns_429(seeded):

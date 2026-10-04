@@ -37,6 +37,8 @@ def save_run(session: Session, result) -> uuid.UUID:
             "promptTokens": result.prompt_tokens,
             "completionTokens": result.completion_tokens,
             "estimatedCostUsd": f"{result.estimated_cost_usd:.6f}",
+            "latencyMs": result.latency_ms,
+            "decision": _decision(result),
             "model": result.model,
         },
     )
@@ -67,6 +69,17 @@ def save_run(session: Session, result) -> uuid.UUID:
     )
     session.commit()
     return run_id
+
+
+def _decision(result) -> str:
+    """read, advise, propose, or refuse. The approver is recorded later, on the approve action."""
+    if result.refusal:
+        return "refuse"
+    if any(action.get("type") == "credit" for action in result.proposed_actions):
+        return "propose"
+    if result.citations:
+        return "advise"
+    return "read"
 
 
 def _uuid(value) -> uuid.UUID | None:

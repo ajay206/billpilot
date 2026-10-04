@@ -15,6 +15,7 @@ from billpilot.agent.cost import estimate_cost
 from billpilot.agent.embeddings import build_embedder
 from billpilot.agent.guardrails import (
     allowed_identifiers,
+    proposal_error,
     redact_pii,
     redact_secrets,
     refusal_message,
@@ -214,11 +215,11 @@ def run_agent(
     grounded = True
     citations: list[dict] = []
     if not refusal:
-        answer, grounded, citations = screen_output(answer, evidence, retrieved)
-        if any(action.get("applied") for action in proposed):
+        answer, grounded, citations = screen_output(answer, evidence, retrieved, message)
+        if proposal_error(proposed):
             answer = (
-                "A tool result says a credit was applied. This copilot must not apply credits. "
-                "The proposal has to stay pending until a different person approves it."
+                "A credit proposal has to stay pending, with an amount taken from the bill, "
+                "until a different person approves it. I will not treat this one as applied."
             )
             grounded = False
             refusal = True

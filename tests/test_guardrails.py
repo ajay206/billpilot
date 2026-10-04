@@ -3,10 +3,12 @@
 from billpilot.agent.guardrails import (
     allowed_identifiers,
     format_citation,
+    proposal_error,
     redact_pii,
     refusal_message,
     sanitize_untrusted,
     screen_input,
+    screen_output,
 )
 
 
@@ -58,3 +60,37 @@ def test_customer_answer_cannot_carry_another_customers_identifiers():
     assert "+919111111111" not in answer
     assert refusal_message("cross_account")
     assert "§" in format_citation("billing-policy.md", "Late fee")
+
+
+def test_an_advice_answer_without_a_citation_is_replaced():
+    retrieved = [{"doc": "billing-policy.md", "section": "Late fee", "citation": "[billing-policy.md § Late fee]"}]
+    replaced, grounded, citations = screen_output(
+        "The late fee is a flat charge.",
+        ["late fee 50.00"],
+        retrieved,
+        "Explain the late fee on my bill.",
+    )
+    assert grounded is False
+    assert citations == []
+    assert "cite" in replaced.lower()
+
+
+def test_a_cited_advice_answer_is_kept():
+    retrieved = [{"doc": "billing-policy.md", "section": "Late fee"}]
+    answer = "The late fee is 50.00 INR. [billing-policy.md § Late fee]"
+    kept, grounded, citations = screen_output(
+        answer,
+        ["The late fee is 50.00 INR."],
+        retrieved,
+        "Explain the late fee.",
+    )
+    assert grounded is True
+    assert kept == answer
+    assert citations == [{"doc": "billing-policy.md", "section": "Late fee"}]
+
+
+def test_a_credit_proposal_must_stay_pending():
+    applied = {"type": "credit", "id": "1", "status": "applied", "amount": "10.00", "applied": True}
+    pending = {"type": "credit", "id": "1", "status": "pending_approval", "amount": "10.00", "applied": False}
+    assert proposal_error([applied])
+    assert proposal_error([pending]) is None

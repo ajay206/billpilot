@@ -101,5 +101,5 @@ def test_scripted_completion_is_what_the_endpoint_returns(seeded):
         )
     assert response.status_code == 200
     body = response.json()
-    # No search was called, so a policy-shaped answer with no citation is replaced.
-    assert body["grounded"] is False or "no tool calls" in body["answer"]
+    assert body["grounded"] is False
+    assert "cite" in body["answer"].lower()

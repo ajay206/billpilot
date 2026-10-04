@@ -2,9 +2,9 @@
 
 ## Decision
 
-`screen_input` refuses an empty message, a message over the length cap, a prompt-injection phrase, an out-of-scope request, a request to apply money or change service, and a customer asking for a different `CUST-` number. Those refusals never call the model.
+`screen_input` refuses an empty message, a message over the length cap, a prompt-injection phrase, an out-of-scope request, a request to apply money or change service, and a customer asking for a different `CUST-` number. Those refusals never call the model. `/agent/chat` also passes through the existing per-role rate limit before the loop starts.
 
-Tool text is wrapped as untrusted data and stripped of instruction-shaped lines before it is appended. Customer numbers, emails, and phone numbers that were not in the tool evidence are removed from the answer. Amounts in the answer must appear in the tool results. A citation must name a doc and section that search actually returned. An answer that fails those checks is replaced with a short refusal. The loop also stops at `AGENT_MAX_TOOL_CALLS` and `AGENT_MAX_TOKENS`.
+Tool text, including retrieved policy, is wrapped as untrusted data and stripped of instruction-shaped lines before it is appended. Customer numbers, emails, and phone numbers that were not in the tool evidence are removed from the answer. Amounts in the answer must appear in the tool results. A citation must name a doc and section that search actually returned. An advise-tier answer (an explanation, a policy question, a runbook) is replaced when it has no such citation. A credit proposal is kept only when it is `pending_approval` with a positive amount; an applied status is refused. The loop stops at `AGENT_MAX_TOOL_CALLS` (default 12, enough for the dispute sequence) and `AGENT_MAX_TOKENS`.
 
 ## Alternatives
 

@@ -6,6 +6,7 @@ sees them. Amounts in the answer have to appear in tool results or cited text.
 """
 
 import re
+from decimal import Decimal, InvalidOperation
 
 CITATION_RE = re.compile(r"\[([A-Za-z0-9._-]+\.md) § ([^\[\]\n]+?)\]")
 AMOUNT_RE = re.compile(r"\d+\.\d{2}")
@@ -166,11 +167,14 @@ def screen_output(
     answer: str,
     evidence: list[str],
     retrieved: list[dict[str, str]],
+    user_message: str = "",
 ) -> tuple[str, bool, list[dict[str, str]]]:
     """Keep citations that match retrieved sections, and amounts that were retrieved.
 
-    A failed check replaces the answer. The model does not get a second chance
-    in the same turn: an ungrounded amount is not shown.
+    Advise-tier answers (an explanation, a policy answer, plan advice, a
+    runbook) have to cite a section that search actually returned. A failed
+    check replaces the answer. The model does not get a second chance in the
+    same turn: an ungrounded amount is not shown.
     """
     trusted: list[dict[str, str]] = []
     known = {(item["doc"], item["section"]) for item in retrieved}
@@ -192,7 +196,7 @@ def screen_output(
             False,
             trusted,
         )
-    if searched and not trusted and _looks_like_policy(answer):
+    if not trusted and (searched or _needs_citation(user_message)):
         return (
             "I don't have a policy section to cite for that. I will not guess.",
             False,
@@ -201,6 +205,41 @@ def screen_output(
     return answer, True, trusted
 
 
-def _looks_like_policy(answer: str) -> bool:
-    lowered = answer.lower()
-    return "policy" in lowered or "rule" in lowered or "gst" in lowered
+def _needs_citation(message: str) -> bool:
+    """Explanations and policy answers are the advise tier. They need a source."""
+    lowered = message.lower()
+    markers = (
+        "policy",
+        "runbook",
+        "cite",
+        "tariff",
+        "rule",
+        "roaming",
+        "refund",
+        "deposit",
+        "porting",
+        "why is",
+        "explain",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def proposal_error(actions: list[dict]) -> str | None:
+    """A credit proposal has to be a pending row with a positive amount.
+
+    Anything else is not a valid change-tier action. The copilot still has
+    no approve tool; this only checks the shape of what propose returned.
+    """
+    for action in actions:
+        if action.get("type") != "credit":
+            continue
+        if action.get("applied") or action.get("status") != "pending_approval":
+            return "needs_a_person"
+        if not action.get("id"):
+            return "needs_a_person"
+        try:
+            if Decimal(str(action.get("amount"))) <= 0:
+                return "needs_a_person"
+        except (InvalidOperation, ValueError):
+            return "needs_a_person"
+    return None
