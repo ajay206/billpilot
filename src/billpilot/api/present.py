@@ -12,11 +12,13 @@ from billpilot.api.schemas import (
     AppliedRate,
     AuditEntry,
     BillAdjustment,
+    BillingAccount,
     Bucket,
     BucketCounter,
     Characteristic,
     CustomerBill,
     CustomerBillDispute,
+    ExemptionState,
     Money,
     Payment,
     PaymentAttempt,
@@ -27,11 +29,13 @@ from billpilot.api.schemas import (
     Ref,
     RelatedParty,
     TimePeriod,
+    TreatmentState,
     TroubleTicket,
     Usage,
 )
 from billpilot.models import (
     Account,
+    AccountTreatment,
     Adjustment,
     AuditLog,
     Customer,
@@ -43,6 +47,7 @@ from billpilot.models import (
     Subscription,
     TariffPlan,
     Ticket,
+    TreatmentExemption,
     UsageEvent,
     VasSubscription,
 )
@@ -474,6 +479,42 @@ def to_adjustment(request: Request, row: Adjustment) -> BillAdjustment:
         customerBill=bill,
         proposedBy=row.proposed_by,
         decidedBy=row.decided_by,
+    )
+
+
+def to_billing_account(
+    request: Request,
+    account: Account,
+    customer: Customer,
+    treatment: AccountTreatment | None,
+    exemption: TreatmentExemption | None,
+) -> BillingAccount:
+    treatment_view = None
+    if treatment is not None:
+        treatment_view = TreatmentState(
+            stage=treatment.stage,
+            status=treatment.status,
+            holdReason=treatment.hold_reason,
+            startedAt=treatment.started_at.isoformat(),
+        )
+    exemption_view = None
+    if exemption is not None:
+        exemption_view = ExemptionState(
+            reason=exemption.reason,
+            validFor=TimePeriod(
+                startDateTime=exemption.valid_from.isoformat(),
+                endDateTime=exemption.valid_to.isoformat(),
+            ),
+        )
+    return BillingAccount(
+        id=str(account.id),
+        href=resource_href(request, f"accountManagement/v4/billingAccount/{account.id}"),
+        type_name="BillingAccount",
+        name=account.account_number,
+        state=account.status,
+        treatment=treatment_view,
+        exemption=exemption_view,
+        relatedParty=[_party(customer)],
     )
 
 

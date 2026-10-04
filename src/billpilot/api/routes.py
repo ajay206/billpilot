@@ -20,6 +20,7 @@ from billpilot.api.present import (
     to_attempt,
     to_audit,
     to_bill,
+    to_billing_account,
     to_bucket,
     to_dispute,
     to_entitlement_product,
@@ -37,6 +38,7 @@ from billpilot.api.schemas import (
     ApprovalDecision,
     AuditEntry,
     BillAdjustment,
+    BillingAccount,
     Bucket,
     CustomerBill,
     CustomerBillDispute,
@@ -53,9 +55,11 @@ from billpilot.api.security import Principal, get_principal, require_roles
 from billpilot.billing import ZERO, money
 from billpilot.db import get_session
 from billpilot.models import (
+    Account,
     AccountTreatment,
     Adjustment,
     AuditLog,
+    Customer,
     Dispute,
     Entitlement,
     EntitlementBalance,
@@ -64,6 +68,7 @@ from billpilot.models import (
     Subscription,
     TariffPlan,
     Ticket,
+    TreatmentExemption,
     UsageEvent,
     VasSubscription,
 )
@@ -870,6 +875,73 @@ def list_buckets(
     ).all()
     _page_headers(response, total, len(rows))
     return [to_bucket(request, balance, entitlement) for balance, entitlement in rows]
+
+
+# --- Billing account and treatment ----------------------------------------
+
+
+def _open_treatment(session: Session, account_id: uuid.UUID):
+    now = datetime.now(UTC)
+    treatment = session.scalar(
+        select(AccountTreatment).where(
+            AccountTreatment.account_id == account_id,
+            AccountTreatment.status.in_(("active", "held")),
+        )
+    )
+    exemption = session.scalars(
+        select(TreatmentExemption)
+        .where(
+            TreatmentExemption.account_id == account_id,
+            TreatmentExemption.valid_from <= now,
+            TreatmentExemption.valid_to >= now,
+        )
+        .order_by(TreatmentExemption.valid_from.desc())
+    ).first()
+    return treatment, exemption
+
+
+@router.get(
+    "/accountManagement/v4/billingAccount",
+    response_model=list[BillingAccount],
+    tags=["Billing account"],
+)
+def list_billing_accounts(
+    request: Request,
+    response: Response,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(get_principal),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    account_id: uuid.UUID | None = Query(None, alias="id"),
+):
+    """Accounts in scope, with the open treatment. A read added for the copilot."""
+    stmt = _account_filter(session, principal, select(Account), Account.id, account_id)
+    total = _count(session, stmt)
+    rows = session.scalars(stmt.order_by(Account.account_number).offset(offset).limit(limit)).all()
+    _page_headers(response, total, len(rows))
+    views = []
+    for account in rows:
+        treatment, exemption = _open_treatment(session, account.id)
+        customer = session.get(Customer, account.customer_id)
+        views.append(to_billing_account(request, account, customer, treatment, exemption))
+    return views
+
+
+@router.get(
+    "/accountManagement/v4/billingAccount/{account_id}",
+    response_model=BillingAccount,
+    tags=["Billing account"],
+)
+def get_billing_account(
+    account_id: uuid.UUID,
+    request: Request,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(get_principal),
+):
+    account = require_account(session, principal, account_id)
+    treatment, exemption = _open_treatment(session, account.id)
+    customer = session.get(Customer, account.customer_id)
+    return to_billing_account(request, account, customer, treatment, exemption)
 
 
 # --- Ops audit ------------------------------------------------------------

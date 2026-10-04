@@ -1,13 +1,15 @@
 [project]
 name = "billpilot"
-version = "0.1.0"
-description = "Phase 1 mock BSS for BillPilot: synthetic telecom billing data and TMF-shaped APIs."
+version = "0.2.0"
+description = "BillPilot mock BSS and billing copilot: synthetic telecom data, TMF-shaped APIs, and a tool-calling agent."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.14",
     "faker>=33.1.0",
     "fastapi>=0.115",
+    "httpx>=0.28",
+    "pgvector>=0.3.6",
     "psycopg[binary]>=3.2",
     "pydantic>=2.10",
     "pydantic-settings>=2.6",
@@ -17,9 +19,11 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "httpx>=0.28",
     "pytest>=8.3",
     "ruff>=0.8",
+]
+tracing = [
+    "langfuse>=2.50",
 ]
 
 [project.scripts]

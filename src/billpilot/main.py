@@ -1,6 +1,6 @@
-"""FastAPI mock BSS.
+"""FastAPI mock BSS and the billing copilot.
 
-The paths follow TM Forum resource names so a later agent can call them as tools.
+The paths follow TM Forum resource names so the agent can call them as tools.
 This process is a learning mock: it is not a certified or conformant implementation.
 """
 
@@ -8,6 +8,7 @@ import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -15,6 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from billpilot import __version__
+from billpilot.api.agent_routes import router as agent_router
 from billpilot.api.routes import audit_router, router
 from billpilot.config import Settings, get_settings
 from billpilot.events import NullPublisher
@@ -30,6 +32,9 @@ credits. Money and service changes stay pending until a different role approves 
 
 Send `X-API-Key`. The customer key sees one customer, the CSR key sees accounts
 assigned to that CSR, and the ops key can read across accounts and approve adjustments.
+
+`POST /agent/chat` is the copilot. It calls these APIs with the same key. It can
+propose a credit and cannot approve one. Set `LLM_BACKEND=api` to use a hosted model.
 """
 
 logger = logging.getLogger("billpilot.access")
@@ -89,6 +94,24 @@ class RequestLogMiddleware(BaseHTTPMiddleware):
             request_id_var.reset(token)
 
 
+def _index_knowledge(settings: Settings) -> None:
+    from billpilot.agent.embeddings import build_embedder
+    from billpilot.agent.knowledge import ensure_index
+    from billpilot.db import get_session_factory
+
+    session = get_session_factory()()
+    try:
+        ensure_index(session, build_embedder(settings))
+    finally:
+        session.close()
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    _index_knowledge(app.state.settings)
+    yield
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
@@ -98,6 +121,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description=DESCRIPTION,
         docs_url="/docs",
         redoc_url="/redoc",
+        lifespan=_lifespan,
     )
     app.state.settings = settings
     app.state.publisher = NullPublisher()
@@ -113,6 +137,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestLogMiddleware)
     app.include_router(router, prefix="/tmf-api")
     app.include_router(audit_router)
+    app.include_router(agent_router)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:

@@ -1,8 +1,8 @@
 # BillPilot
 
-BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system it will sit on: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs.
+BillPilot is an AI copilot for telecom billing and operations. Phase 1 is the mock billing system: a PostgreSQL ledger of synthetic customers, and a FastAPI service whose resources are shaped like TM Forum Open APIs. Phase 2 is the copilot: a tool-calling agent, a small policy corpus, an audit row per turn, a CLI, `POST /agent/chat`, and an evaluation harness.
 
-There is no model, no message broker, and no user interface yet. Those land in later phases. The seams are already named: an event publisher, an approval queue for money and service changes, and persona-scoped APIs.
+There is still no message broker and no user interface. Money and service changes stay on the Phase 1 approval queue. The copilot proposes a credit. It cannot apply one.
 
 ## Synthetic data only
 
@@ -14,24 +14,40 @@ This API is a **learning mock**. It is not a certified or conformant TM Forum im
 
 ```mermaid
 flowchart LR
-  subgraph later [Later phases]
-    UI[UI]
-    Agent[Agent and tools]
-    Broker[Kafka]
+  subgraph phase2 [Phase 2]
+    CLI[billpilot ask]
+    Chat[POST /agent/chat]
+    Loop[Agent loop]
+    Guard[Guardrails]
+    Tools[Persona tools]
+    RAG[Policy search]
   end
   subgraph phase1 [Phase 1]
     API[FastAPI mock BSS]
-    DB[(PostgreSQL)]
+    DB[(PostgreSQL and pgvector)]
     Gen[Synthetic generator]
   end
-  UI -.-> API
-  Agent -.-> API
+  subgraph later [Later]
+    UI[UI]
+    Broker[Kafka]
+  end
+  CLI --> Loop
+  Chat --> Loop
+  Loop --> Guard
+  Loop --> Tools
+  Loop --> RAG
+  Tools -->|X-API-Key| API
+  RAG --> DB
   API --> DB
   Gen --> DB
+  Loop --> DB
+  UI -.-> API
   API -.-> Broker
 ```
 
-The database is the system of record. The API translates internal words (`issued`, `posted`, `soft_bar`) into TMF-like words (`sent`, `done`, a trouble-ticket status). Writes that move money start as `pending_approval`. A different role applies them. Every write is appended to `audit_log`.
+The database is the system of record. The API translates internal words (`issued`, `posted`, `soft_bar`) into TMF-like words (`sent`, `done`, a trouble-ticket status). Writes that move money start as `pending_approval`. A different role applies them. Every write, including a copilot turn, is appended to `audit_log`.
+
+The copilot does not query the billing tables. Its tools call the HTTP API with the caller's key. Policy text is the exception: `docs/knowledge/` is embedded into `knowledge_chunks` and searched in process. A turn is stored on `agent_runs` and linked to the audit row. Design notes for each of those choices are in [docs/decisions](docs/decisions).
 
 ## Quickstart
 
@@ -83,7 +99,7 @@ The image migrates on startup and does not load the synthetic ledger by itself. 
 ```yaml
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: billpilot
       POSTGRES_PASSWORD: billpilot
@@ -152,7 +168,9 @@ All TMF-shaped routes are under `/tmf-api`. Lists accept `offset` and `limit` (d
 | GET | `/productInventory/v4/product` | subscription, VAS, and entitlement |
 | GET, POST | `/troubleTicket/v4/troubleTicket` | read: all three; create: csr only |
 | GET | `/prepayBalanceManagement/v4/bucket` and `/balance` | TMF654 buckets; `/balance` is the deck's name for the same read |
+| GET | `/accountManagement/v4/billingAccount` | all three, within scope; treatment stage, status, hold, exemption |
 | GET | `/ops/auditLog` | ops |
+| POST | `/agent/chat` | the API key chooses the persona; body is `message` and optional `accountId` |
 | GET | `/health` | public |
 
 Filters use dotted names where the Open API does: `billingAccount.id`, `billNo`, `billDate.gte`, `usageType`, `product.id`.
@@ -206,14 +224,82 @@ Apart from those faults, invoices balance: line amounts sum to the total, tax is
 - The clock inside the generator is 1 October 2026. It does not read the wall clock. Live API writes do.
 - Rate limits are counted in this process only. They are not shared across replicas.
 
+## Copilot
+
+The default model backend is `fake`: a scripted playbook, no network, no key, and a price of zero. That is what `docker compose up` and CI use. A hosted model is opt-in. Copy `.env.example` and set:
+
+```bash
+LLM_BACKEND=api
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o-mini
+LLM_API_KEY=sk-...
+```
+
+Any host that accepts `POST {LLM_BASE_URL}/chat/completions` works. Do not add a local model runtime. Embeddings default to `EMBEDDING_BACKEND=hash` (no download). `EMBEDDING_BACKEND=api` calls `{LLM_BASE_URL}/embeddings` and must return 256 dimensions. Reindex after changing it: `billpilot knowledge reindex`.
+
+Langfuse is off. Set `LANGFUSE_ENABLED=true` and install the extra with `pip install -e ".[tracing]"` only if you want traces. A missing package or a failed export does not change the answer.
+
+### Ask
+
+Start the stack, then:
+
+```bash
+billpilot ask --persona customer "Explain my latest bill, line by line, against last month and the tariff."
+```
+
+CSR and ops need an account id. Planted faults alternate assignees: even indexes are `CSR-A`, odd indexes are `CSR-B` (`assigned_csr` is `CSR-A` when `index % 2 == 0`). The first anomaly is index 1, so a double charge is `CSR-B`. The default `CSR_CODE` is `CSR-A` and will not see that account. For a manual CSR session on an odd-index fault, set `CSR_CODE=CSR-B` and use the CSR key. The eval harness rebinds the CSR code per case, so you do not set this for `python -m billpilot.evals`.
+
+The same turn is `POST /agent/chat` with the persona's `X-API-Key`. The body cannot pick a different persona.
+
+A credit proposal stays `pending_approval`. Ops approves it with the existing endpoint:
+
+```bash
+curl -s -X POST -H 'X-API-Key: dev-ops-key' -H 'Content-Type: application/json' \
+  -d '{"decision":"approve"}' \
+  http://localhost:8000/tmf-api/customerBillManagement/v4/billAdjustment/<id>/approve
+```
+
+### Evals
+
+The harness builds 67 labelled cases from `data/ground_truth.json` (or from the generator if that file is missing). Counts: guardrail 15, policy 13, disputes 12, bill explanation 7, treatment 6, entitlements 5, CSR runbook 4, payments 3, VAS and plan 2.
+
+CI runs the harness inside pytest against the fake model. That smoke test checks that guardrail cases are refused, that no case calls an approve tool, and that a report file is written. It is not a quality score.
+
+No measured run is committed. The table is a placeholder. Fill it by running the command below against a database seeded with the same `data/ground_truth.json`, then reading `reports/eval/report.md`.
+
+| Metric | Fake smoke (CI) | Hosted model |
+| --- | --- | --- |
+| Cases | 67 | — |
+| Fault detected | — | — |
+| Credit amount correct | — | — |
+| Accuracy | — | — |
+| Tool-call correctness | — | — |
+| Citation correctness | — | — |
+| Refusal correctness | — | — |
+| Cost (USD) | 0 | — |
+| Latency p50 / p95 | — | — |
+
+```bash
+LLM_BACKEND=api LLM_API_KEY=sk-... LLM_BASE_URL=https://api.openai.com/v1 LLM_MODEL=gpt-4o-mini \
+  python -m billpilot.evals --backend api --ground-truth data/ground_truth.json --output reports/eval
+```
+
+`reports/` is gitignored. Print the case counts and the cost line without calling a model:
+
+```bash
+python -m billpilot.evals --estimate-only --ground-truth data/ground_truth.json
+```
+
+**Cost estimate, not a measurement.** At the built-in `gpt-4o-mini` prices (0.15 USD per million prompt tokens, 0.60 USD per million completion tokens), one full run of 67 cases is **0.078390 USD**. The formula assumes 3 calls per case, 1200 prompt tokens and 350 completion tokens per call. Hash embeddings are free and are not in that number. A different model uses `LLM_PRICE_TABLE` or the `LLM_*_PRICE_PER_MILLION` fallbacks. The fake backend costs 0.
+
 ## Decisions
 
-Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions).
+Short notes on why the obvious alternatives were not taken live in [docs/decisions](docs/decisions). Phase 2 notes cover the hosted model, hash embeddings, pgvector, HTTP tools, persona allowlists, propose-not-apply, guardrails, `agent_runs`, the fake model, optional Langfuse, and the treatment read.
 
 ## Deferred
 
-- The assistant itself: tools, retrieval, guardrails, tracing, and an evaluation set.
 - Kafka (or Redpanda) and a consumer for failed downstream work. `NullPublisher` is the stand-in. Topics already named: `usage.rated`, `bill.run`, `payment.events`, `treatment.actions`, `entitlement.changes`, `system.errors`.
 - Dashboards, onboarding, and bulk migration.
 - A user interface.
 - Certified TM Forum conformance, split GST, and multi-replica rate limits.
+- An approve tool. Ops keeps the existing approval endpoint. The copilot must not be the approver.

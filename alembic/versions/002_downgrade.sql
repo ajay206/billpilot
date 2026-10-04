@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS agent_runs;
+DROP TABLE IF EXISTS knowledge_chunks;
+DROP EXTENSION IF EXISTS vector;

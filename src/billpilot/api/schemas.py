@@ -213,6 +213,32 @@ class BillAdjustment(Resource):
     decidedBy: str | None = None
 
 
+class TreatmentState(BaseModel):
+    stage: str
+    status: str
+    holdReason: str | None = None
+    startedAt: str
+
+
+class ExemptionState(BaseModel):
+    reason: str
+    validFor: TimePeriod
+
+
+class BillingAccount(Resource):
+    """Read-only account, including the open collections treatment.
+
+    Phase 1 stored treatment and did not expose it. The copilot needs this
+    read so it can check a bar without querying the database itself.
+    """
+
+    name: str
+    state: str
+    treatment: TreatmentState | None = None
+    exemption: ExemptionState | None = None
+    relatedParty: list[RelatedParty]
+
+
 class AuditEntry(BaseModel):
     id: str
     occurredAt: str
