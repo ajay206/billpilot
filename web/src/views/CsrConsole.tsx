@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { Api } from "../api";
 import { qs } from "../api";
-import { AnswerText, DataTable, Placeholder, PolicyDrawer, ProposalCard, StatusBadge } from "../components";
+import { AnswerText, DataTable, Placeholder, PolicyDrawer, ProposalCard, Skeleton, StatusBadge } from "../components";
 import { characteristic, inr, partyName, when, whenTime } from "../format";
 import type {
   Account,
@@ -40,11 +40,9 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "disputes", label: "Disputes" },
 ];
 
-export function CsrConsole({ api }: { api: Api }) {
-  const [query, setQuery] = useState("");
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [account, setAccount] = useState<Account | null>(null);
+export function CsrConsole({ api, account }: { api: Api; account: Account | null }) {
   const [tab, setTab] = useState<Tab>("bills");
+  const [loading, setLoading] = useState(false);
   const [bills, setBills] = useState<Bill[]>([]);
   const [lines, setLines] = useState<Rate[]>([]);
   const [usage, setUsage] = useState<Usage[]>([]);
@@ -53,41 +51,36 @@ export function CsrConsole({ api }: { api: Api }) {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [draft, setDraft] = useState("Investigate this account and propose a credit only if the bill shows a duplicate line. Do not apply it.");
+  const [draft, setDraft] = useState(
+    "Investigate this account and propose a credit only if the bill shows a duplicate line. Do not apply it.",
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [citation, setCitation] = useState<{ doc: string; section: string } | null>(null);
   const [openTools, setOpenTools] = useState<string | null>(null);
 
   useEffect(() => {
+    setTurns([]);
+    setTab("bills");
+    if (!account) {
+      setBills([]);
+      setUsage([]);
+      setPayments([]);
+      setTickets([]);
+      setDisputes([]);
+      setAdjustments([]);
+      return;
+    }
     let cancel = false;
-    const handle = window.setTimeout(() => {
-      api
-        .get<Account[]>(qs("/tmf-api/accountManagement/v4/billingAccount", { q: query || undefined, limit: 12 }))
-        .then((result) => {
-          if (!cancel) setAccounts(result.data);
-        })
-        .catch((reason: Error) => {
-          if (!cancel) setError(reason.message);
-        });
-    }, 200);
-    return () => {
-      cancel = true;
-      window.clearTimeout(handle);
-    };
-  }, [api, query]);
-
-  useEffect(() => {
-    if (!account) return;
-    let cancel = false;
+    setLoading(true);
     const id = account.id;
     Promise.all([
-      api.get<Bill[]>(qs("/tmf-api/customerBillManagement/v4/customerBill", { "billingAccount.id": id, limit: 6 })),
-      api.get<Usage[]>(qs("/tmf-api/usageManagement/v4/usage", { "billingAccount.id": id, limit: 8 })),
-      api.get<Payment[]>(qs("/tmf-api/paymentManagement/v4/payment", { "account.id": id, limit: 8 })),
-      api.get<Ticket[]>(qs("/tmf-api/troubleTicket/v4/troubleTicket", { "billingAccount.id": id, limit: 8 })),
-      api.get<Dispute[]>(qs("/tmf-api/customerBillManagement/v4/customerBillDispute", { "billingAccount.id": id, limit: 8 })),
-      api.get<Adjustment[]>(qs("/tmf-api/customerBillManagement/v4/billAdjustment", { "billingAccount.id": id, limit: 8 })),
+      api.get<Bill[]>(qs("/tmf-api/customerBillManagement/v4/customerBill", { "billingAccount.id": id, limit: 24 })),
+      api.get<Usage[]>(qs("/tmf-api/usageManagement/v4/usage", { "billingAccount.id": id, limit: 24 })),
+      api.get<Payment[]>(qs("/tmf-api/paymentManagement/v4/payment", { "account.id": id, limit: 24 })),
+      api.get<Ticket[]>(qs("/tmf-api/troubleTicket/v4/troubleTicket", { "billingAccount.id": id, limit: 24 })),
+      api.get<Dispute[]>(qs("/tmf-api/customerBillManagement/v4/customerBillDispute", { "billingAccount.id": id, limit: 24 })),
+      api.get<Adjustment[]>(qs("/tmf-api/customerBillManagement/v4/billAdjustment", { "billingAccount.id": id, limit: 24 })),
     ])
       .then(([billRows, usageRows, paymentRows, ticketRows, disputeRows, adjustmentRows]) => {
         if (cancel) return;
@@ -100,6 +93,9 @@ export function CsrConsole({ api }: { api: Api }) {
       })
       .catch((reason: Error) => {
         if (!cancel) setError(reason.message);
+      })
+      .finally(() => {
+        if (!cancel) setLoading(false);
       });
     return () => {
       cancel = true;
@@ -118,7 +114,7 @@ export function CsrConsole({ api }: { api: Api }) {
         qs("/tmf-api/customerBillManagement/v4/appliedCustomerBillingRate", {
           "billingAccount.id": account.id,
           "bill.id": billId,
-          limit: 20,
+          limit: 40,
         }),
       )
       .then((result) => {
@@ -160,52 +156,40 @@ export function CsrConsole({ api }: { api: Api }) {
   }
 
   return (
-    <div className="csr">
-      <section className="finder" aria-label="Account search">
-        <label htmlFor="account-search">Search accounts</label>
-        <input
-          id="account-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Name, customer number, account"
-        />
-        <ul className="account-list">
-          {accounts.map((row) => (
-            <li key={row.id}>
-              <button
-                type="button"
-                className={account?.id === row.id ? "account selected" : "account"}
-                onClick={() => {
-                  setAccount(row);
-                  setTurns([]);
-                  setTab("bills");
-                }}
-              >
-                <strong>{partyName(row.relatedParty)}</strong>
-                <span>
-                  {row.customerNumber} · {row.name}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-        {accounts.length === 0 ? <p className="empty">No account matches.</p> : null}
-      </section>
-
-      <section className="dossier" aria-label="Account dossier">
-        {!account ? <p className="empty">Select an account to see bills, lines, usage, payments, treatment, and open cases.</p> : null}
+    <div className="workspace csr">
+      <section className="panel dossier" aria-label="Account dossier">
+        {!account ? <p className="empty">Search for an account to open the 360 view.</p> : null}
         {account ? (
           <>
-            <header className="panel-head">
+            <header className="account-hero">
               <div>
-                <p className="eyebrow">Care console</p>
-                <h2>{partyName(account.relatedParty)}</h2>
+                <p className="eyebrow">Account 360</p>
+                <h1>{partyName(account.relatedParty)}</h1>
                 <p className="muted">
-                  {account.customerNumber} · {account.name} · {account.state}
+                  {account.customerNumber} · {account.name}
                 </p>
               </div>
+              <StatusBadge status={account.state} />
             </header>
-            <div className="tabs" role="tablist">
+            <dl className="facts">
+              <div>
+                <dt>Status</dt>
+                <dd>{account.state}</dd>
+              </div>
+              <div>
+                <dt>Treatment</dt>
+                <dd>{account.treatment ? `${account.treatment.stage} · ${account.treatment.status}` : "None"}</dd>
+              </div>
+              <div>
+                <dt>Hold</dt>
+                <dd>{account.treatment?.holdReason || "No hold"}</dd>
+              </div>
+              <div>
+                <dt>Exemption</dt>
+                <dd>{account.exemption?.reason || "None"}</dd>
+              </div>
+            </dl>
+            <div className="tabs" role="tablist" aria-label="Account sections">
               {TABS.map((item) => (
                 <button
                   key={item.id}
@@ -219,55 +203,65 @@ export function CsrConsole({ api }: { api: Api }) {
                 </button>
               ))}
             </div>
-            {tab === "bills" ? (
+            {loading ? <Skeleton rows={4} label="Loading account" /> : null}
+            {!loading && tab === "bills" ? (
               <DataTable
+                label="Bills"
                 rows={bills}
                 empty="No bills in scope."
                 columns={[
-                  { key: "bill", label: "Bill", render: (row) => row.billNo },
-                  { key: "date", label: "Date", render: (row) => when(row.billDate) },
-                  { key: "state", label: "State", render: (row) => row.state },
-                  { key: "total", label: "Total", render: (row) => inr(row.taxIncludedAmount) },
-                  { key: "due", label: "Due", render: (row) => inr(row.amountDue) },
+                  { key: "bill", label: "Bill", render: (row) => row.billNo, value: (row) => row.billNo },
+                  { key: "date", label: "Date", render: (row) => when(row.billDate), value: (row) => row.billDate },
+                  { key: "state", label: "State", render: (row) => <StatusBadge status={row.state} />, value: (row) => row.state },
+                  { key: "total", label: "Total", render: (row) => inr(row.taxIncludedAmount), value: (row) => Number(row.taxIncludedAmount.value) },
+                  { key: "due", label: "Due", render: (row) => inr(row.amountDue), value: (row) => Number(row.amountDue.value) },
                 ]}
               />
             ) : null}
-            {tab === "lines" ? (
+            {!loading && tab === "lines" ? (
               <DataTable
+                label="Lines"
                 rows={lines}
                 empty="No lines on the latest bill."
                 columns={[
-                  { key: "name", label: "Line", render: (row) => row.name },
-                  { key: "type", label: "Type", render: (row) => row.appliedBillingRateType },
-                  { key: "amount", label: "Amount", render: (row) => inr(row.taxExcludedAmount) },
+                  { key: "name", label: "Line", render: (row) => row.name, value: (row) => row.name },
+                  { key: "type", label: "Type", render: (row) => row.appliedBillingRateType, value: (row) => row.appliedBillingRateType },
+                  { key: "amount", label: "Amount", render: (row) => inr(row.taxExcludedAmount), value: (row) => Number(row.taxExcludedAmount.value) },
                 ]}
               />
             ) : null}
-            {tab === "usage" ? (
+            {!loading && tab === "usage" ? (
               <DataTable
+                label="Usage"
                 rows={usage}
                 empty="No usage in the latest page."
                 columns={[
-                  { key: "when", label: "When", render: (row) => whenTime(row.usageDate) },
-                  { key: "what", label: "Usage", render: (row) => row.description },
-                  { key: "type", label: "Type", render: (row) => row.usageType },
-                  { key: "rated", label: "Rated", render: (row) => characteristic(row.usageCharacteristic, "ratedAmount") },
+                  { key: "when", label: "When", render: (row) => whenTime(row.usageDate), value: (row) => row.usageDate },
+                  { key: "what", label: "Usage", render: (row) => row.description, value: (row) => row.description },
+                  { key: "type", label: "Type", render: (row) => row.usageType, value: (row) => row.usageType },
+                  {
+                    key: "rated",
+                    label: "Rated",
+                    render: (row) => characteristic(row.usageCharacteristic, "ratedAmount"),
+                    value: (row) => characteristic(row.usageCharacteristic, "ratedAmount"),
+                  },
                 ]}
               />
             ) : null}
-            {tab === "payments" ? (
+            {!loading && tab === "payments" ? (
               <DataTable
+                label="Payments"
                 rows={payments}
                 empty="No payments."
                 columns={[
-                  { key: "date", label: "Date", render: (row) => when(row.paymentDate) },
-                  { key: "status", label: "Status", render: (row) => row.status },
-                  { key: "method", label: "Method", render: (row) => row.paymentMethod?.name || "—" },
-                  { key: "amount", label: "Amount", render: (row) => inr(row.amount) },
+                  { key: "date", label: "Date", render: (row) => when(row.paymentDate), value: (row) => row.paymentDate },
+                  { key: "status", label: "Status", render: (row) => <StatusBadge status={row.status} />, value: (row) => row.status },
+                  { key: "method", label: "Method", render: (row) => row.paymentMethod?.name || "—", value: (row) => row.paymentMethod?.name || "" },
+                  { key: "amount", label: "Amount", render: (row) => inr(row.amount), value: (row) => Number(row.amount.value) },
                 ]}
               />
             ) : null}
-            {tab === "treatment" ? (
+            {!loading && tab === "treatment" ? (
               <div className="treatment">
                 {account.treatment ? (
                   <>
@@ -285,19 +279,20 @@ export function CsrConsole({ api }: { api: Api }) {
                 {account.exemption ? <p>Exemption: {account.exemption.reason}</p> : null}
               </div>
             ) : null}
-            {tab === "tickets" ? (
+            {!loading && tab === "tickets" ? (
               <DataTable
+                label="Tickets"
                 rows={tickets}
                 empty="No open tickets on this page."
                 columns={[
-                  { key: "name", label: "Ticket", render: (row) => row.name },
-                  { key: "status", label: "Status", render: (row) => row.status },
-                  { key: "severity", label: "Severity", render: (row) => row.severity },
-                  { key: "when", label: "Opened", render: (row) => when(row.creationDate) },
+                  { key: "name", label: "Ticket", render: (row) => row.name, value: (row) => row.name },
+                  { key: "status", label: "Status", render: (row) => row.status, value: (row) => row.status },
+                  { key: "severity", label: "Severity", render: (row) => row.severity, value: (row) => row.severity },
+                  { key: "when", label: "Opened", render: (row) => when(row.creationDate), value: (row) => row.creationDate },
                 ]}
               />
             ) : null}
-            {tab === "disputes" ? (
+            {!loading && tab === "disputes" ? (
               <div className="stack">
                 {disputes.map((dispute) => (
                   <article key={dispute.id} className="proposal">
@@ -329,11 +324,10 @@ export function CsrConsole({ api }: { api: Api }) {
           Paste an error and get numbered steps from the runbooks. That assistant is not in this build. The copilot beside this panel already cites the same runbook pages.
         </Placeholder>
       </section>
-
-      <section className="copilot" aria-label="CSR copilot">
+      <section className="panel copilot" aria-label="CSR copilot">
         <p className="eyebrow">Copilot</p>
         <h2>Propose, don’t apply</h2>
-        <p className="muted">Credits stay pending until ops approves them. Tool calls for a turn are listed under the answer.</p>
+        <p className="muted">Credits stay pending until ops approves them. Citations, evidence, and tool calls stay with the answer.</p>
         <div className="thread slim">
           {turns.map((turn) => (
             <article key={turn.id} className={`bubble ${turn.role}`}>
@@ -346,6 +340,15 @@ export function CsrConsole({ api }: { api: Api }) {
               {turn.proposed?.map((item) => (
                 <ProposalCard key={`${item.type}-${item.id}`} item={item} />
               ))}
+              {turn.citations && turn.citations.length > 0 ? (
+                <div className="cite-row">
+                  {turn.citations.map((item) => (
+                    <button key={`${item.doc}-${item.section}`} type="button" className="cite" onClick={() => setCitation(item)}>
+                      {item.doc} · {item.section}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
               {turn.toolCalls && turn.toolCalls.length > 0 ? (
                 <div className="tools">
                   <button type="button" className="text-button" onClick={() => setOpenTools(openTools === turn.id ? null : turn.id)}>
@@ -358,6 +361,12 @@ export function CsrConsole({ api }: { api: Api }) {
                           <strong>{call.name}</strong>
                           <span className={call.ok ? "ok" : "bad-text"}>{call.ok ? "ok" : `status ${call.status ?? "—"}`}</span>
                           <code>{JSON.stringify(call.arguments ?? {})}</code>
+                          {call.preview ? (
+                            <>
+                              <span className="evidence-label">Evidence</span>
+                              <pre className="evidence">{call.preview}</pre>
+                            </>
+                          ) : null}
                         </li>
                       ))}
                     </ol>

@@ -18,6 +18,7 @@ from starlette.responses import Response
 from billpilot import __version__
 from billpilot.agent.tracing import tracing_configured
 from billpilot.api.agent_routes import router as agent_router
+from billpilot.api.auth_routes import router as auth_router
 from billpilot.api.routes import audit_router, router
 from billpilot.config import Settings, get_settings
 from billpilot.events import NullPublisher
@@ -32,11 +33,14 @@ This is not a certified or conformant TM Forum implementation. It serves synthet
 INR billing data so an assistant can explain bills, raise disputes and propose
 credits. Money and service changes stay pending until a different role approves them.
 
-Send `X-API-Key`. The customer key sees one customer, the CSR key sees accounts
-assigned to that CSR, and the ops key can read across accounts and approve adjustments.
+The browser signs in at `POST /auth/login`. Role and scope are loaded from the
+users table. `X-API-Key` still works for the CLI and for service calls: the
+customer key sees one customer, the CSR key sees accounts assigned to that CSR,
+and the ops key can read across accounts and approve adjustments.
 
-`POST /agent/chat` is the copilot. It calls these APIs with the same key. It can
-propose a credit and cannot approve one. Set `LLM_BACKEND=api` to use a hosted model.
+`POST /agent/chat` is the copilot. It calls these APIs as the same principal.
+It can propose a credit and cannot approve one. Set `LLM_BACKEND=api` to use a
+hosted model.
 """
 
 logger = logging.getLogger("billpilot.access")
@@ -136,10 +140,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "ops": settings.rate_limit_ops_per_minute,
         }
     )
+    from billpilot.auth.throttle import FailureLimiter
+
+    app.state.login_limiter = FailureLimiter(
+        settings.login_failure_limit,
+        settings.login_failure_window_seconds,
+    )
     app.add_middleware(RequestLogMiddleware)
     app.include_router(router, prefix="/tmf-api")
     app.include_router(audit_router)
     app.include_router(agent_router)
+    app.include_router(auth_router)
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:

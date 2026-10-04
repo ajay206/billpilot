@@ -1,4 +1,8 @@
-"""The 23 tables in the Phase 1 billing model, grouped the way the architecture deck groups them."""
+"""The 23 tables in the Phase 1 billing model, grouped the way the architecture deck groups them.
+
+`users` (migration 004) is the sign-in table. It is not part of this ledger and
+is not truncated when the generator replaces billing rows.
+"""
 
 TABLES: tuple[str, ...] = (
     # Customer and product

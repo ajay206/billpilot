@@ -36,34 +36,39 @@ Wait until the API log says it is listening, or until `curl -s http://localhost:
 
 If the seed container is killed before it prints `Seeded`, the machine ran out of memory. Run `docker compose down -v` and use the 48-customer settings above. Do not raise `CUSTOMER_COUNT` on a 512 MB host. That limit is the Render free instance, not your laptop.
 
-### URLs and demo keys
+### URLs and demo sign-in
 
-| View | URL | Key the switcher sends | Scope |
+Open http://localhost:8000. The login page lists the demo accounts. Passwords are for this synthetic demo only. Do not reuse them.
+
+| User | Password | Lands on | Scope |
 | --- | --- | --- | --- |
-| Customer | http://localhost:8000/customer (also http://localhost:8000) | `dev-customer-key` | `CUST-000001` only |
-| CSR | http://localhost:8000/csr | `dev-csr-key` | Accounts assigned to `CSR-A`, including `CUST-000001` |
-| Ops | http://localhost:8000/ops | `dev-ops-key` | Every account, approvals, runs, audit. No customer chat |
-| Health | http://localhost:8000/health | none | `demoMode` and `tracing` |
-| API docs | http://localhost:8000/docs | none | OpenAPI |
+| `priya.sharma` | `demo-priya` | http://localhost:8000/customer | `CUST-000001` only |
+| `arjun.mehta` | `demo-arjun` | `/customer` | `CUST-000003` only |
+| `neha.iyer` | `demo-neha` | `/customer` | `CUST-000005` only |
+| `ananya.rao` | `demo-ananya` | http://localhost:8000/csr | Accounts assigned to `CSR-A`, including `CUST-000001` |
+| `vikram.nair` | `demo-vikram` | `/csr` | Accounts assigned to `CSR-B` |
+| `meera.kapoor` | `demo-meera` | http://localhost:8000/ops | Every account, approvals, runs, audit. No customer chat |
 
-The keys are the published demo defaults. They are in the frontend bundle on purpose. Do not replace them with a key you care about.
+Health is http://localhost:8000/health (`demoMode` and `tracing`). API docs are http://localhost:8000/docs.
+
+Curl and `billpilot ask` still use the API keys (`dev-customer-key`, `dev-csr-key`, `dev-ops-key`). Those strings are not in the frontend bundle. Do not replace them with a key you care about and leave it in git.
 
 ### Click-through
 
 The banner should say **Demo mode** before you start.
 
-**Customer** at http://localhost:8000/customer
+**Customer** — sign in as `priya.sharma` / `demo-priya`
 
-1. Confirm the rail shows `CUST-000001` and a latest bill.
+1. Confirm the portal shows her account and a latest bill. The assistant is the panel on the right.
 2. Click **Why is my bill higher this month? Explain it line by line.** Wait for the answer. It names the bill and the lines.
 3. Click a citation chip, such as `billing-policy.md` or `tariffs.md`. A drawer opens that policy section. Close it.
 4. Click **What are the roaming rules for charges outside the home network?** The answer cites `roaming.md`. Open that chip.
-5. Click **I think I was charged twice. Please open a dispute.** The rail shows the dispute with status `open`. A customer cannot apply a credit. The answer says a CSR has to propose one and ops has to approve it.
+5. Click **I think I was charged twice. Please open a dispute.** Open **Disputes**. The dispute is `open`. A customer cannot apply a credit. The answer says a CSR has to propose one and ops has to approve it.
 6. Click **What are the refund, deposit, and porting rules?** and **Did I opt into a value-added service, and what plan am I on?** Each answer cites a policy section.
 
-**CSR** at http://localhost:8000/csr
+**CSR** — sign out, then sign in as `ananya.rao` / `demo-ananya`
 
-1. Search `CUST-000001` and select that account.
+1. Search `CUST-000001` in the top bar and select that account.
 2. Walk the tabs: Bills, Lines, Usage, Payments, Treatment, Tickets, Disputes. Disputes shows the dispute from the customer step, with status `open`.
 3. In the copilot box, ask: `Explain the latest bill line by line against the tariff.`
 4. Open the **tool calls** control under the answer. You should see the bill, the lines, and a policy search. Click a citation chip and read the section.
@@ -79,14 +84,14 @@ curl -s -X POST http://localhost:8000/tmf-api/customerBillManagement/v4/billAdju
   -d '{"billingAccount":{"id":"ACCOUNT_ID"},"customerBill":{"id":"BILL_ID"},"adjustmentType":"credit","amount":{"unit":"INR","value":"10.00"},"reason":"Demo credit, still pending approval."}'
 ```
 
-**Ops** at http://localhost:8000/ops
+**Ops** — sign out, then sign in as `meera.kapoor` / `demo-meera`
 
-1. Confirm the page says ops has no customer chat. The three counters are open disputes, pending approvals, and fraud flags.
-2. On **Credits**, the proposed credit shows the amount, the reason, and who proposed it. Click **Approve**. The notice names the approver (`ops`) and the status. The row leaves the pending list. Reload the customer view: the credit is no longer pending, and the line names who decided it.
+1. Confirm the page says ops has no customer chat. The three counters are open disputes, pending approvals, and fraud flags. The nav does not offer a customer chat.
+2. On **Credits**, the proposed credit shows the amount, the reason, and who proposed it. Click **Approve**, then confirm. The notice names the approver and the status. The row leaves the pending list. Sign back in as Priya: the credit is no longer pending, and the line names who decided it.
 3. A second `POST` to `/tmf-api/customerBillManagement/v4/billAdjustment/{id}/approve` returns 409 and does not change the bill again. The UI shows that message when the endpoint returns 409.
 4. Open **Unbars** and **Plan changes**. Both say there is no proposal and no endpoint. Do not expect a button there.
-5. **Recent agent runs** lists the turns you just made, with decision, token total, estimated cost, latency, and trace id. The trace id is a dash until Langfuse keys are set.
-6. **Audit log** lists the chat turns and the approval. The request column is the first characters of the request id.
+5. Open **Agent runs**. It lists the turns you just made, with decision, token total, estimated cost, latency, and trace id. The trace id is a dash until Langfuse keys are set.
+6. Open **Audit log**. It lists the chat turns and the approval. The request column is the first characters of the request id.
 7. **Failure dashboard** and **Reports** are marked Phase 4, including fraud and revenue checks.
 
 ### Switch from the fake model to a real API key
@@ -144,7 +149,21 @@ A free project suspends compute after it sits idle (Neon documents about five mi
 
 The container migrates, and if `customers` is empty it seeds, then listens on the port Render assigns. `/health` must return 200. The first boot is the slow one: it loads the synthetic ledger (48 customers, 2 months, one of each planted fault, so it fits a 512 MB instance). Later boots see the rows and skip the seed.
 
-Open `https://<your-service>.onrender.com`. The three persona buttons use `dev-customer-key`, `dev-csr-key`, and `dev-ops-key`. Those values are also set in `render.yaml`. They are the published demo keys, not a production secret. Do not replace them with a key you care about and leave it in the frontend. The UI has those three strings baked in. A real model key stays in `LLM_API_KEY` on the server and never in the bundle.
+Open `https://<your-service>.onrender.com` and sign in with a demo account from the login page. `render.yaml` still sets `dev-customer-key`, `dev-csr-key`, and `dev-ops-key` for curl and the CLI. They are published demo keys, not a production secret, and they are not in the frontend bundle. A real model key stays in `LLM_API_KEY` on the server.
+
+`SESSION_SECRET` is generated by the blueprint (`generateValue: true`). You do not paste one into git. It signs the session cookie. If you change it later, everyone signs in again. The ledger is untouched.
+
+### Existing Render service (do not wipe Neon)
+
+If the service is already deployed from an older image, do this instead of creating a second blueprint:
+
+1. Merge this change to the branch Render deploys.
+2. In the Render dashboard, open the `billpilot` service → **Environment**.
+3. Add `SESSION_SECRET` if it is not there. Use **Generate** so Render fills a random value. Do not commit that value. Leave `DATABASE_URL` as it is.
+4. Leave `API_KEY_CUSTOMER`, `API_KEY_CSR`, and `API_KEY_OPS` if you still want curl to work. The UI does not send them.
+5. Save and deploy the new image. Do not drop the Neon database and do not clear `customers`.
+
+On boot the container runs `billpilot migrate`, which creates the empty `users` table, then `billpilot seed-if-empty`. If `customers` already has rows, the billing ledger is skipped. The same command inserts any missing demo user (Priya, Arjun, Neha, Ananya, Vikram, Meera). A later boot finds those usernames and does not reset their hashes. Sign-in works as soon as `/health` is 200. Old persona buttons are gone; use the login page.
 
 ### Demo mode and a real model
 
@@ -195,9 +214,9 @@ A turn with several tool calls is several billable units (the trace plus each ob
 ## 4. Check that it works
 
 1. `https://<service>.onrender.com/health` returns `status: ok` and `demoMode: true` until you set a model key.
-2. The customer view loads `CUST-000001` and can answer a roaming question with a citation you can open.
-3. The CSR view can search that customer and shows tool calls after a turn.
-4. The ops view shows the approval queue, recent runs, and the audit log. Approving a credit uses the existing endpoint. A second approve returns 409 and the bill does not change again.
+2. The login page lists the six demo accounts. Priya Sharma sees only `CUST-000001` and can answer a roaming question with a citation you can open.
+3. Ananya Rao can search that customer and the copilot shows tool calls after a turn. Vikram Nair cannot open Priya's account.
+4. Meera Kapoor sees the approval queue, recent runs, and the audit log. Approving a credit asks for confirmation and uses the existing endpoint. A second approve returns 409 and the bill does not change again. A customer who opens `/ops` is refused.
 5. After Langfuse is configured, the ops run row shows a trace id. The same id is in the Langfuse project.
 
 Local `docker compose up` is the same image shape: Postgres in Compose, the API serving the UI on port 8000, seed on first boot of an empty database. See the README quickstart.

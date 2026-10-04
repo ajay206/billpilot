@@ -1,5 +1,7 @@
 # Three personas, least privilege, API keys
 
+The product UI no longer sends these keys. Sign-in, the session cookie, and the `users` table are [0024](0024-signed-session-cookie.md) and [0026](0026-demo-users.md). API keys remain for the CLI, curl, and the eval harness.
+
 ## Decision
 
 Access is an `X-API-Key` header mapped to one of three roles.

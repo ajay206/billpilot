@@ -5,6 +5,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
+from billpilot.auth.demo import ensure_demo_users
 from billpilot.billing import AS_OF
 from billpilot.synthetic.build import build_world, world_signature
 from billpilot.synthetic.config import GeneratorConfig
@@ -22,6 +23,7 @@ def generate(
     world = build_world(config)
     if session is not None:
         replace_all(session, world)
+        ensure_demo_users(session)
     if output_path is not None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(json.dumps(world.ground_truth, indent=2, sort_keys=True) + "\n")

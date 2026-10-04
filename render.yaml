@@ -20,6 +20,10 @@ services:
         value: CUST-000001
       - key: CSR_CODE
         value: CSR-A
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: SESSION_TTL_SECONDS
+        value: "28800"
       - key: LLM_BACKEND
         value: fake
       - key: LLM_BASE_URL

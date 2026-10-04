@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 
-_API_PREFIXES = ("tmf-api/", "ops/", "agent/", "knowledge/", "docs", "redoc")
+_API_PREFIXES = ("tmf-api/", "ops/", "agent/", "knowledge/", "auth/", "docs", "redoc")
 
 
 def ui_dist() -> Path:

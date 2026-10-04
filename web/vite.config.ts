@@ -11,6 +11,7 @@ export default defineConfig({
       "/ops": "http://127.0.0.1:8000",
       "/health": "http://127.0.0.1:8000",
       "/knowledge": "http://127.0.0.1:8000",
+      "/auth": "http://127.0.0.1:8000",
     },
   },
   test: {

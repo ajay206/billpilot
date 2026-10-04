@@ -1,3 +1,5 @@
+import { csrfToken } from "./auth";
+
 export class ApiError extends Error {
   status: number;
 
@@ -23,14 +25,21 @@ export function qs(path: string, params: Record<string, string | number | undefi
   return text ? `${path}?${text}` : path;
 }
 
-export function createApi(apiKey: string): Api {
+export function createApi(onUnauthorized?: () => void): Api {
   async function call<T>(path: string, init?: RequestInit): Promise<ApiResult<T>> {
     const headers = new Headers(init?.headers);
-    headers.set("X-API-Key", apiKey);
+    const method = (init?.method || "GET").toUpperCase();
     if (init?.body) headers.set("Content-Type", "application/json");
-    const response = await fetch(path, { ...init, headers });
+    if (method !== "GET" && method !== "HEAD") {
+      const token = csrfToken();
+      if (token) headers.set("X-CSRF-Token", token);
+    }
+    const response = await fetch(path, { ...init, headers, credentials: "same-origin" });
     const totalHeader = response.headers.get("X-Total-Count");
     const total = totalHeader == null ? null : Number(totalHeader);
+    if (response.status === 401 && onUnauthorized && !path.startsWith("/auth/login")) {
+      onUnauthorized();
+    }
     if (!response.ok) {
       let message = `Request failed (${response.status}).`;
       try {
@@ -41,6 +50,7 @@ export function createApi(apiKey: string): Api {
       }
       throw new ApiError(response.status, message);
     }
+    if (response.status === 204) return { data: undefined as T, total };
     return { data: (await response.json()) as T, total };
   }
 

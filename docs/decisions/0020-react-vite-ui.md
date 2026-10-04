@@ -1,5 +1,7 @@
 # React, Vite, and TypeScript for the three persona screens
 
+The persona switcher and the demo keys in the bundle are replaced by sign-in. The shell, and the choice to keep building the components here, are [0024](0024-signed-session-cookie.md) and [0025](0025-enterprise-shell.md). React, Vite, and TypeScript still stand.
+
 ## Decision
 
 The UI is a Vite app in `web/`, written in React and TypeScript. It builds to static files. The API process serves those files when `web/dist` exists, so one container is the product. Personas are a switcher in the header. The switcher sends the published demo keys (`dev-customer-key`, `dev-csr-key`, `dev-ops-key`). Those strings are in the bundle on purpose. A model key, a database URL, and a Langfuse secret are not.
