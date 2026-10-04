@@ -213,6 +213,43 @@ class BillAdjustment(Resource):
     decidedBy: str | None = None
 
 
+class TreatmentState(BaseModel):
+    stage: str
+    status: str
+    holdReason: str | None = None
+    startedAt: str
+
+
+class ExemptionState(BaseModel):
+    reason: str
+    validFor: TimePeriod
+
+
+class FraudFlagView(Resource):
+    """A synthetic fraud flag. Read-only. Not a TM Forum resource."""
+
+    flagType: str
+    severity: str
+    status: str
+    detectedAt: str
+    billingAccount: Ref
+    evidence: dict
+
+
+class BillingAccount(Resource):
+    """Read-only account, including the open collections treatment.
+
+    Phase 1 stored treatment and did not expose it. The copilot needs this
+    read so it can check a bar without querying the database itself.
+    """
+
+    name: str
+    state: str
+    treatment: TreatmentState | None = None
+    exemption: ExemptionState | None = None
+    relatedParty: list[RelatedParty]
+
+
 class AuditEntry(BaseModel):
     id: str
     occurredAt: str

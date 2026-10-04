@@ -8,6 +8,7 @@ import uuid
 from datetime import date, datetime
 from decimal import Decimal
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -387,3 +388,45 @@ class AuditLog(Base):
     request_id: Mapped[str] = mapped_column(String(64))
     account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
     payload: Mapped[dict] = mapped_column(JSONB)
+
+
+class KnowledgeChunk(Base):
+    """One section of the synthetic policy corpus, with its embedding."""
+
+    __tablename__ = "knowledge_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    doc_id: Mapped[str] = mapped_column(String(80))
+    title: Mapped[str] = mapped_column(String(200))
+    section: Mapped[str] = mapped_column(String(200))
+    source_path: Mapped[str] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text)
+    # 256 matches the hash embedder and the API embedder's dimensions argument.
+    embedding: Mapped[list] = mapped_column(Vector(256))
+
+
+class AgentRun(Base):
+    """One copilot turn. The transcript lives here; audit_log points at the same request."""
+
+    __tablename__ = "agent_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    request_id: Mapped[str] = mapped_column(String(64))
+    persona: Mapped[str] = mapped_column(String(16))
+    actor_id: Mapped[str] = mapped_column(String(64))
+    account_id: Mapped[uuid.UUID | None] = mapped_column(Uuid)
+    user_message: Mapped[str] = mapped_column(Text)
+    system_prompt: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text)
+    refusal: Mapped[bool] = mapped_column(Boolean)
+    grounded: Mapped[bool] = mapped_column(Boolean)
+    tool_calls: Mapped[list] = mapped_column(JSONB)
+    citations: Mapped[list] = mapped_column(JSONB)
+    proposed_actions: Mapped[list] = mapped_column(JSONB)
+    prompt_tokens: Mapped[int] = mapped_column(Integer)
+    completion_tokens: Mapped[int] = mapped_column(Integer)
+    estimated_cost_usd: Mapped[Decimal] = mapped_column(Numeric(14, 6))
+    latency_ms: Mapped[int] = mapped_column(Integer)
+    model: Mapped[str] = mapped_column(String(80))
+    audit_log_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("audit_log.id"))

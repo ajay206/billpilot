@@ -12,11 +12,14 @@ from billpilot.api.schemas import (
     AppliedRate,
     AuditEntry,
     BillAdjustment,
+    BillingAccount,
     Bucket,
     BucketCounter,
     Characteristic,
     CustomerBill,
     CustomerBillDispute,
+    ExemptionState,
+    FraudFlagView,
     Money,
     Payment,
     PaymentAttempt,
@@ -27,22 +30,26 @@ from billpilot.api.schemas import (
     Ref,
     RelatedParty,
     TimePeriod,
+    TreatmentState,
     TroubleTicket,
     Usage,
 )
 from billpilot.models import (
     Account,
+    AccountTreatment,
     Adjustment,
     AuditLog,
     Customer,
     Dispute,
     Entitlement,
     EntitlementBalance,
+    FraudFlag,
     Invoice,
     InvoiceLine,
     Subscription,
     TariffPlan,
     Ticket,
+    TreatmentExemption,
     UsageEvent,
     VasSubscription,
 )
@@ -474,6 +481,56 @@ def to_adjustment(request: Request, row: Adjustment) -> BillAdjustment:
         customerBill=bill,
         proposedBy=row.proposed_by,
         decidedBy=row.decided_by,
+    )
+
+
+def to_billing_account(
+    request: Request,
+    account: Account,
+    customer: Customer,
+    treatment: AccountTreatment | None,
+    exemption: TreatmentExemption | None,
+) -> BillingAccount:
+    treatment_view = None
+    if treatment is not None:
+        treatment_view = TreatmentState(
+            stage=treatment.stage,
+            status=treatment.status,
+            holdReason=treatment.hold_reason,
+            startedAt=treatment.started_at.isoformat(),
+        )
+    exemption_view = None
+    if exemption is not None:
+        exemption_view = ExemptionState(
+            reason=exemption.reason,
+            validFor=TimePeriod(
+                startDateTime=exemption.valid_from.isoformat(),
+                endDateTime=exemption.valid_to.isoformat(),
+            ),
+        )
+    return BillingAccount(
+        id=str(account.id),
+        href=resource_href(request, f"accountManagement/v4/billingAccount/{account.id}"),
+        type_name="BillingAccount",
+        name=account.account_number,
+        state=account.status,
+        treatment=treatment_view,
+        exemption=exemption_view,
+        relatedParty=[_party(customer)],
+    )
+
+
+def to_fraud_flag(request: Request, row: FraudFlag) -> FraudFlagView:
+    return FraudFlagView(
+        id=str(row.id),
+        href=resource_href(request, f"accountManagement/v4/fraudFlag/{row.id}"),
+        type_name="FraudFlag",
+        flagType=row.flag_type,
+        severity=row.severity,
+        status=row.status,
+        detectedAt=row.detected_at.isoformat(),
+        billingAccount=ref(request, f"accountManagement/v4/billingAccount/{row.account_id}"),
+        evidence=row.evidence,
     )
 
 

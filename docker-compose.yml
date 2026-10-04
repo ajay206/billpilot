@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: pgvector/pgvector:pg16
     environment:
       POSTGRES_USER: billpilot
       POSTGRES_PASSWORD: billpilot
@@ -50,6 +50,18 @@ services:
       RATE_LIMIT_CUSTOMER_PER_MINUTE: ${RATE_LIMIT_CUSTOMER_PER_MINUTE:-120}
       RATE_LIMIT_CSR_PER_MINUTE: ${RATE_LIMIT_CSR_PER_MINUTE:-300}
       RATE_LIMIT_OPS_PER_MINUTE: ${RATE_LIMIT_OPS_PER_MINUTE:-600}
+      LLM_BACKEND: ${LLM_BACKEND:-fake}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      EMBEDDING_BACKEND: ${EMBEDDING_BACKEND:-hash}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
+      AGENT_MAX_TOOL_CALLS: ${AGENT_MAX_TOOL_CALLS:-12}
+      AGENT_MAX_TOKENS: ${AGENT_MAX_TOKENS:-16000}
+      LANGFUSE_ENABLED: ${LANGFUSE_ENABLED:-false}
+      LANGFUSE_PUBLIC_KEY: ${LANGFUSE_PUBLIC_KEY:-}
+      LANGFUSE_SECRET_KEY: ${LANGFUSE_SECRET_KEY:-}
+      LANGFUSE_HOST: ${LANGFUSE_HOST:-https://cloud.langfuse.com}
     ports:
       - "8000:8000"
 

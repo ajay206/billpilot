@@ -1,3 +1,3 @@
-"""BillPilot Phase 1: a synthetic telecom billing core and a TMF-shaped mock BSS."""
+"""BillPilot: a synthetic telecom billing core, a TMF-shaped mock BSS, and a copilot."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
