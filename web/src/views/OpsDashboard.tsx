@@ -3,13 +3,13 @@ import { useEffect, useState } from "react";
 import { ApiError } from "../api";
 import type { Api } from "../api";
 import { qs } from "../api";
-import { ConfirmDialog, DataTable, Metric, Skeleton, StatusBadge } from "../components";
+import { BarChart, ConfirmDialog, DataTable, Metric, Skeleton, StatusBadge } from "../components";
 import { MigrationDesk } from "../features/migration/MigrationDesk";
 import { OnboardingPanel } from "../features/onboarding/OnboardingPanel";
 import { FailureDashboard } from "../features/ops/failures/FailureDashboard";
 import { FindingsPanel } from "../features/ops/findings/FindingsPanel";
 import { ReportsPanel } from "../features/ops/reports/ReportsPanel";
-import { actorLabel, inr, partyName, whenTime } from "../format";
+import { actorLabel, formatINR, formatISTTime, partyName } from "../format";
 import type { Account, Adjustment, AgentRun, AuditEntry } from "../types";
 
 type Queue = "credits" | "unbars" | "plans";
@@ -136,6 +136,21 @@ export function OpsDashboard({
             <Metric label="Pending approvals" value={pendingTotal ?? "—"} hint="Credits waiting" />
             <Metric label="Fraud flags" value={fraud ?? "—"} hint="Synthetic flags" />
           </div>
+          {audit.length > 0 ? (() => {
+            const approveCount = audit.filter((a) => a.action === "approve").length;
+            const rejectCount = audit.filter((a) => a.action === "reject").length;
+            if (approveCount + rejectCount === 0) return null;
+            const bars = [
+              { label: "Approved", value: approveCount, color: "var(--good)" },
+              { label: "Rejected", value: rejectCount, color: "var(--danger)" },
+            ].filter((d) => d.value > 0);
+            return (
+              <div className="chart-card" style={{ marginBottom: "var(--space-4)" }}>
+                <h3>Credit decisions (last 40 audit rows)</h3>
+                <BarChart data={bars} height={120} />
+              </div>
+            );
+          })() : null}
           <section className="panel queue" aria-label="Approval queue">
             <div className="tabs" role="tablist">
               {(
@@ -172,14 +187,14 @@ export function OpsDashboard({
                       <div>
                         <div className="proposal-top">
                           <strong>
-                            {inr(item.amount)} {item.adjustmentType}
+                            {formatINR(item.amount)} {item.adjustmentType}
                           </strong>
                           <StatusBadge status={item.status} />
                         </div>
                         <p>{item.reason}</p>
                         <p className="muted">
                           {item.billingAccount.name ? `${item.billingAccount.name} · ` : ""}
-                          Proposed by {actorLabel(item.proposedBy)} · {whenTime(item.creationDate)}
+                          Proposed by {actorLabel(item.proposedBy)} · {formatISTTime(item.creationDate)}
                         </p>
                       </div>
                       <div className="decide">
@@ -191,7 +206,7 @@ export function OpsDashboard({
                             setDecision({
                               id: item.id,
                               decision: "approve",
-                              amount: inr(item.amount),
+                              amount: formatINR(item.amount),
                               reason: item.reason,
                             })
                           }
@@ -206,7 +221,7 @@ export function OpsDashboard({
                             setDecision({
                               id: item.id,
                               decision: "reject",
-                              amount: inr(item.amount),
+                              amount: formatINR(item.amount),
                               reason: item.reason,
                             })
                           }
@@ -239,7 +254,7 @@ export function OpsDashboard({
             rows={runs}
             empty="No copilot turns yet."
             columns={[
-              { key: "when", label: "When", render: (row) => whenTime(row.occurredAt), value: (row) => row.occurredAt },
+              { key: "when", label: "When", render: (row) => formatISTTime(row.occurredAt), value: (row) => row.occurredAt },
               { key: "who", label: "Persona", render: (row) => row.persona, value: (row) => row.persona },
               { key: "decision", label: "Decision", render: (row) => row.decision, value: (row) => row.decision },
               {
@@ -263,7 +278,7 @@ export function OpsDashboard({
             rows={audit}
             empty="No audit rows."
             columns={[
-              { key: "when", label: "When", render: (row) => whenTime(row.occurredAt), value: (row) => row.occurredAt },
+              { key: "when", label: "When", render: (row) => formatISTTime(row.occurredAt), value: (row) => row.occurredAt },
               { key: "actor", label: "Actor", render: (row) => `${row.actorRole} · ${row.actorId}`, value: (row) => row.actorId },
               { key: "action", label: "Action", render: (row) => row.action, value: (row) => row.action },
               { key: "resource", label: "Resource", render: (row) => row.resourceType, value: (row) => row.resourceType },

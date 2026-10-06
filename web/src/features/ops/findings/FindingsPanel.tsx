@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { Api } from "../../../api";
-import { DataTable, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
-import { inr, when } from "../../../format";
+import { BarChart, DataTable, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
+import { formatINR, formatIST } from "../../../format";
 import type { Account } from "../../../types";
 
 type EvidenceField = { label: string; value: string | number; kind: string };
@@ -63,8 +63,8 @@ function hasAmount(evidence: Record<string, unknown>): boolean {
 }
 
 function fieldText(field: EvidenceField): string {
-  if (field.kind === "money") return inr(String(field.value));
-  if (field.kind === "date") return when(String(field.value));
+  if (field.kind === "money") return formatINR(String(field.value));
+  if (field.kind === "date") return formatIST(String(field.value));
   return String(field.value);
 }
 
@@ -176,8 +176,8 @@ export function FindingsPanel({
       setRows((current) => replaceFinding(current, result.data.finding));
       setNotice(
         result.data.duplicate
-          ? `Credit ${inr(result.data.amount)} is already ${result.data.status.replaceAll("_", " ")}.`
-          : `Credit ${inr(result.data.amount)} is ${result.data.status.replaceAll("_", " ")}. You proposed it, so you cannot approve it.`,
+          ? `Credit ${formatINR(result.data.amount)} is already ${result.data.status.replaceAll("_", " ")}.`
+          : `Credit ${formatINR(result.data.amount)} is ${result.data.status.replaceAll("_", " ")}. You proposed it, so you cannot approve it.`,
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not propose a credit.");
@@ -191,6 +191,24 @@ export function FindingsPanel({
     for (const row of rows) counts.set(row.family, (counts.get(row.family) ?? 0) + 1);
     return counts;
   }, [rows]);
+
+  const FAMILY_COLORS: Record<string, string> = {
+    fraud: "#8d2f2f",
+    revenue: "#0f5c56",
+    payments: "#3b6fa0",
+    treatment: "#7a4e0d",
+    entitlement: "#14663d",
+  };
+
+  const familyBars = useMemo(
+    () =>
+      FAMILIES.map((f) => ({
+        label: f.label,
+        value: familyCounts.get(f.id) ?? 0,
+        color: FAMILY_COLORS[f.id] ?? "var(--accent)",
+      })).filter((d) => d.value > 0),
+    [familyCounts],
+  );
 
   const visible = rows.filter((row) => {
     if (family !== "all" && row.family !== family) return false;
@@ -233,6 +251,12 @@ export function FindingsPanel({
       {loading ? <Skeleton rows={4} label="Loading findings" /> : null}
       {!loading && loaded && rows.length === 0 ? (
         <p className="empty">No findings yet. Run checks to score the synthetic ledger.</p>
+      ) : null}
+      {!loading && familyBars.length > 0 ? (
+        <div className="chart-card" style={{ marginTop: "var(--space-4)" }}>
+          <h3>Findings by category</h3>
+          <BarChart data={familyBars} height={140} />
+        </div>
       ) : null}
       {!loading && rows.length > 0 ? (
         <>
@@ -338,7 +362,7 @@ export function FindingsPanel({
                     )}
                     {row.adjustmentStatus ? (
                       <p>
-                        Credit {inr(row.adjustmentAmount)} · <StatusBadge status={row.adjustmentStatus} />
+                        Credit {formatINR(row.adjustmentAmount)} · <StatusBadge status={row.adjustmentStatus} />
                       </p>
                     ) : hasAmount(row.evidence) ? (
                       <button className="ghost" type="button" onClick={() => void propose(row.id)} disabled={busyId === row.id}>

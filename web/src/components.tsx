@@ -255,19 +255,21 @@ type Column<T> = {
   label: string;
   render: (row: T) => ReactNode;
   value?: (row: T) => string | number;
+  /** Right-align header and cells for numeric/currency columns. */
+  numeric?: boolean;
 };
 
 export function DataTable<T extends { id: string }>({
   columns,
   rows,
-  empty,
+  empty = "No records yet.",
   loading = false,
   pageSize = 8,
   label = "Data",
 }: {
   columns: Column<T>[];
   rows: T[];
-  empty: string;
+  empty?: string;
   loading?: boolean;
   pageSize?: number;
   label?: string;
@@ -346,7 +348,7 @@ export function DataTable<T extends { id: string }>({
                   const active = sortKey === column.key;
                   const ariaSort = !column.value ? undefined : active ? (sortDir === "asc" ? "ascending" : "descending") : "none";
                   return (
-                    <th key={column.key} aria-sort={ariaSort}>
+                    <th key={column.key} aria-sort={ariaSort} className={column.numeric ? "num" : undefined}>
                       {column.value ? (
                         <button type="button" className="sort" onClick={() => toggleSort(column.key)}>
                           {column.label}
@@ -364,7 +366,7 @@ export function DataTable<T extends { id: string }>({
               {visible.map((row) => (
                 <tr key={row.id}>
                   {columns.map((column) => (
-                    <td key={column.key}>{column.render(row)}</td>
+                    <td key={column.key} className={column.numeric ? "num" : undefined}>{column.render(row)}</td>
                   ))}
                 </tr>
               ))}
@@ -386,5 +388,134 @@ export function DataTable<T extends { id: string }>({
         </nav>
       ) : null}
     </div>
+  );
+}
+
+/* ── SVG mini-charts ──────────────────────────────────────── */
+
+type BarDatum = { label: string; value: number; color?: string };
+
+export function BarChart({
+  data,
+  height = 160,
+  formatValue,
+}: {
+  data: BarDatum[];
+  height?: number;
+  formatValue?: (v: number) => string;
+}) {
+  if (!data.length) return <p className="empty">No data.</p>;
+  const max = Math.max(...data.map((d) => d.value), 1);
+  const barW = Math.max(20, Math.floor(360 / data.length) - 6);
+  const gap = 6;
+  const width = data.length * (barW + gap) - gap + 40;
+  const chartH = height - 28;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} width="100%" style={{ overflow: "visible" }} aria-label="Bar chart">
+      {data.map((d, i) => {
+        const bh = Math.max(2, (d.value / max) * chartH);
+        const x = i * (barW + gap) + 20;
+        const y = chartH - bh;
+        return (
+          <g key={d.label}>
+            <rect x={x} y={y} width={barW} height={bh} rx={3} fill={d.color ?? "var(--accent)"} opacity={0.85} />
+            <text x={x + barW / 2} y={chartH + 14} textAnchor="middle" fontSize={9} fill="var(--muted)">
+              {d.label.length > 7 ? d.label.slice(0, 6) + "…" : d.label}
+            </text>
+            {d.value > 0 ? (
+              <text x={x + barW / 2} y={y - 3} textAnchor="middle" fontSize={9} fill="var(--text)" fontWeight={600}>
+                {formatValue ? formatValue(d.value) : d.value}
+              </text>
+            ) : null}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+type LineDatum = { label: string; value: number };
+
+export function LineChart({
+  data,
+  height = 120,
+  color = "var(--accent)",
+}: {
+  data: LineDatum[];
+  height?: number;
+  color?: string;
+}) {
+  if (data.length < 2) return <p className="empty">Not enough data points.</p>;
+  const max = Math.max(...data.map((d) => d.value), 1);
+  const padX = 8;
+  const padY = 10;
+  const w = 360;
+  const h = height - 20;
+  const xs = data.map((_, i) => padX + (i / (data.length - 1)) * (w - padX * 2));
+  const ys = data.map((d) => padY + (1 - d.value / max) * (h - padY * 2));
+  const polyline = xs.map((x, i) => `${x},${ys[i]}`).join(" ");
+  const area = `M${xs[0]},${h} ` + xs.map((x, i) => `L${x},${ys[i]}`).join(" ") + ` L${xs[xs.length - 1]},${h} Z`;
+  return (
+    <svg viewBox={`0 0 ${w} ${height}`} width="100%" aria-label="Line chart">
+      <defs>
+        <linearGradient id="lg" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.25} />
+          <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <path d={area} fill="url(#lg)" />
+      <polyline points={polyline} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" />
+      {data.map((d, i) => (
+        <g key={d.label}>
+          <circle cx={xs[i]} cy={ys[i]} r={3} fill={color} />
+          {i % Math.max(1, Math.floor(data.length / 6)) === 0 ? (
+            <text x={xs[i]} y={height - 4} textAnchor="middle" fontSize={8.5} fill="var(--muted)">
+              {d.label}
+            </text>
+          ) : null}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
+export function DonutChart({
+  data,
+  size = 120,
+}: {
+  data: BarDatum[];
+  size?: number;
+}) {
+  if (!data.length) return <p className="empty">No data.</p>;
+  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const r = size / 2 - 8;
+  const cx = size / 2;
+  const cy = size / 2;
+  const arcs: { d: string; color: string; label: string; pct: number }[] = [];
+  let angle = -Math.PI / 2;
+  for (const d of data) {
+    const sweep = (d.value / total) * Math.PI * 2;
+    const x1 = cx + r * Math.cos(angle);
+    const y1 = cy + r * Math.sin(angle);
+    const x2 = cx + r * Math.cos(angle + sweep);
+    const y2 = cy + r * Math.sin(angle + sweep);
+    const large = sweep > Math.PI ? 1 : 0;
+    arcs.push({
+      d: `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`,
+      color: d.color ?? "var(--accent)",
+      label: d.label,
+      pct: Math.round((d.value / total) * 100),
+    });
+    angle += sweep;
+  }
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-label="Donut chart">
+      {arcs.map((arc) => (
+        <path key={arc.label} d={arc.d} fill={arc.color} opacity={0.88}>
+          <title>{arc.label}: {arc.pct}%</title>
+        </path>
+      ))}
+      <circle cx={cx} cy={cy} r={r * 0.58} fill="white" />
+    </svg>
   );
 }

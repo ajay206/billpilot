@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ApiError } from "../../api";
 import type { Api } from "../../api";
 import { DataTable } from "../../components";
-import { inr } from "../../format";
+import { formatINR } from "../../format";
 
 type Summary = {
   source?: { records?: number; balanceTotal?: string; customers?: number; services?: number; balances?: number };
@@ -220,8 +220,8 @@ export function MigrationDesk({ api }: { api: Api }) {
             </article>
           </div>
           <p>
-            Source balance {inr(summary.source?.balanceTotal)} · accepted {inr(summary.acceptedBalanceTotal)} · target{" "}
-            {inr(summary.target?.balanceTotal)} ·{" "}
+            Source balance {formatINR(summary.source?.balanceTotal)} · accepted {formatINR(summary.acceptedBalanceTotal)} · target{" "}
+            {formatINR(summary.target?.balanceTotal)} ·{" "}
             {summary.balanceMatched ? "balance totals match" : "balance totals do not match"}
           </p>
           <p className="muted">
@@ -293,7 +293,7 @@ export function MigrationDesk({ api }: { api: Api }) {
               { key: "reason", label: "Reason", render: (row) => row.reason || "—" },
               { key: "plan", label: "Plan", render: (row) => row.legacyPlan || "—" },
               { key: "msisdn", label: "MSISDN", render: (row) => row.msisdn || "—" },
-              { key: "balance", label: "Balance", render: (row) => (row.sourceBalance ? inr(row.sourceBalance) : "—") },
+              { key: "balance", label: "Balance", render: (row) => (row.sourceBalance ? formatINR(row.sourceBalance) : "—"), numeric: true },
             ]}
           />
         </>
