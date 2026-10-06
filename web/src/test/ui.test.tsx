@@ -204,6 +204,30 @@ describe("sign-in and role routing", () => {
   });
 });
 
+describe("topbar user menu alignment", () => {
+  it("renders the user menu button for customer role", async () => {
+    installFetch((url) => {
+      if (url.endsWith("/auth/me")) return ok(session("customer", "Priya Sharma"));
+      if (url.endsWith("/health")) return ok({ status: "ok", demoMode: false, llmBackend: "api", tracing: false });
+      return null;
+    });
+    window.history.pushState({}, "", "/customer");
+    render(<App />);
+    expect(await screen.findByRole("button", { name: /priya sharma/i })).toBeInTheDocument();
+  });
+
+  it("renders the user menu button for CSR role", async () => {
+    installFetch((url) => {
+      if (url.endsWith("/auth/me")) return ok(session("csr", "Ananya Rao"));
+      if (url.endsWith("/health")) return ok({ status: "ok", demoMode: false, llmBackend: "api", tracing: false });
+      return null;
+    });
+    window.history.pushState({}, "", "/csr");
+    render(<App />);
+    expect(await screen.findByRole("button", { name: /ananya rao/i })).toBeInTheDocument();
+  });
+});
+
 describe("shared controls", () => {
   it("renders a citation as a button and a credit as pending approval", async () => {
     const user = userEvent.setup();
