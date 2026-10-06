@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { Api } from "../api";
 import { qs } from "../api";
-import { AnswerText, DataTable, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
+import { AnswerText, BarChart, DataTable, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
 import { TroubleshootPanel } from "../features/csr/troubleshoot/TroubleshootPanel";
 import { OnboardingPanel } from "../features/onboarding/OnboardingPanel";
 import { characteristic, inr, partyName, when, whenTime } from "../format";
@@ -229,16 +229,42 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
               />
             ) : null}
             {!loading && !loadError && tab === "lines" ? (
-              <DataTable
-                label="Lines"
-                rows={lines}
-                empty="No lines on the latest bill."
-                columns={[
-                  { key: "name", label: "Line", render: (row) => row.name, value: (row) => row.name },
-                  { key: "type", label: "Type", render: (row) => row.appliedBillingRateType, value: (row) => row.appliedBillingRateType },
-                  { key: "amount", label: "Amount", render: (row) => inr(row.taxExcludedAmount), value: (row) => Number(row.taxExcludedAmount.value) },
-                ]}
-              />
+              <>
+                {lines.length > 0 ? (() => {
+                  const grouped = new Map<string, number>();
+                  for (const line of lines) {
+                    const type = line.appliedBillingRateType || "other";
+                    grouped.set(type, (grouped.get(type) ?? 0) + Number(line.taxExcludedAmount?.value ?? 0));
+                  }
+                  const TYPE_COLORS: Record<string, string> = {
+                    recurring: "#0f5c56",
+                    one_time: "#3b6fa0",
+                    usage: "#7a4e0d",
+                    tax: "#14663d",
+                  };
+                  const bars = [...grouped.entries()].map(([k, v]) => ({
+                    label: k.replace("_", " "),
+                    value: Math.round(v),
+                    color: TYPE_COLORS[k] ?? "var(--accent)",
+                  }));
+                  return (
+                    <div className="chart-card" style={{ marginBottom: "var(--space-3)" }}>
+                      <h3>Bill breakdown by type (₹)</h3>
+                      <BarChart data={bars} height={130} formatValue={(v) => `₹${v.toLocaleString("en-IN")}`} />
+                    </div>
+                  );
+                })() : null}
+                <DataTable
+                  label="Lines"
+                  rows={lines}
+                  empty="No lines on the latest bill."
+                  columns={[
+                    { key: "name", label: "Line", render: (row) => row.name, value: (row) => row.name },
+                    { key: "type", label: "Type", render: (row) => row.appliedBillingRateType, value: (row) => row.appliedBillingRateType },
+                    { key: "amount", label: "Amount", render: (row) => inr(row.taxExcludedAmount), value: (row) => Number(row.taxExcludedAmount.value) },
+                  ]}
+                />
+              </>
             ) : null}
             {!loading && !loadError && tab === "usage" ? (
               <DataTable

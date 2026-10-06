@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { Api } from "./api";
@@ -277,12 +277,24 @@ export function AppShell({
   children: ReactNode;
 }) {
   const items = NAV[user.role];
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const closeSidebar = useCallback(() => setSidebarOpen(false), []);
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") setSidebarOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   return (
     <div className="shell">
       <a className="skip" href="#content">
         Skip to content
       </a>
-      <aside className="sidebar">
+      {sidebarOpen ? <div className="sidebar-backdrop" aria-hidden="true" onClick={closeSidebar} /> : null}
+      <aside className={sidebarOpen ? "sidebar open" : "sidebar"} aria-label="Navigation">
         <div className="brand">
           <span className="mark" aria-hidden="true">
             Bp
@@ -299,7 +311,7 @@ export function AppShell({
               type="button"
               className={section === item.id ? "nav-item current" : "nav-item"}
               aria-current={section === item.id ? "page" : undefined}
-              onClick={() => onSection(item.id)}
+              onClick={() => { onSection(item.id); setSidebarOpen(false); }}
             >
               {item.label}
             </button>
@@ -309,6 +321,15 @@ export function AppShell({
       </aside>
       <div className="main-col">
         <header className="topbar">
+          <button
+            type="button"
+            className="sidebar-toggle"
+            aria-label={sidebarOpen ? "Close menu" : "Open menu"}
+            aria-expanded={sidebarOpen}
+            onClick={() => setSidebarOpen((v) => !v)}
+          >
+            {sidebarOpen ? "✕" : "☰"}
+          </button>
           <nav className="crumbs" aria-label="Breadcrumb">
             <ol>
               {breadcrumbs.map((crumb) => (

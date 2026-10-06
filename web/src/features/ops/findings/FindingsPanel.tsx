@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type { Api } from "../../../api";
-import { DataTable, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
+import { BarChart, DataTable, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
 import { inr, when } from "../../../format";
 import type { Account } from "../../../types";
 
@@ -192,6 +192,24 @@ export function FindingsPanel({
     return counts;
   }, [rows]);
 
+  const FAMILY_COLORS: Record<string, string> = {
+    fraud: "#8d2f2f",
+    revenue: "#0f5c56",
+    payments: "#3b6fa0",
+    treatment: "#7a4e0d",
+    entitlement: "#14663d",
+  };
+
+  const familyBars = useMemo(
+    () =>
+      FAMILIES.map((f) => ({
+        label: f.label,
+        value: familyCounts.get(f.id) ?? 0,
+        color: FAMILY_COLORS[f.id] ?? "var(--accent)",
+      })).filter((d) => d.value > 0),
+    [familyCounts],
+  );
+
   const visible = rows.filter((row) => {
     if (family !== "all" && row.family !== family) return false;
     if (severity !== "all" && row.severity !== severity) return false;
@@ -233,6 +251,12 @@ export function FindingsPanel({
       {loading ? <Skeleton rows={4} label="Loading findings" /> : null}
       {!loading && loaded && rows.length === 0 ? (
         <p className="empty">No findings yet. Run checks to score the synthetic ledger.</p>
+      ) : null}
+      {!loading && familyBars.length > 0 ? (
+        <div className="chart-card" style={{ marginTop: "var(--space-4)" }}>
+          <h3>Findings by category</h3>
+          <BarChart data={familyBars} height={140} />
+        </div>
       ) : null}
       {!loading && rows.length > 0 ? (
         <>

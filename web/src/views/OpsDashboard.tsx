@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ApiError } from "../api";
 import type { Api } from "../api";
 import { qs } from "../api";
-import { ConfirmDialog, DataTable, Metric, Skeleton, StatusBadge } from "../components";
+import { BarChart, ConfirmDialog, DataTable, Metric, Skeleton, StatusBadge } from "../components";
 import { MigrationDesk } from "../features/migration/MigrationDesk";
 import { OnboardingPanel } from "../features/onboarding/OnboardingPanel";
 import { FailureDashboard } from "../features/ops/failures/FailureDashboard";
@@ -136,6 +136,21 @@ export function OpsDashboard({
             <Metric label="Pending approvals" value={pendingTotal ?? "—"} hint="Credits waiting" />
             <Metric label="Fraud flags" value={fraud ?? "—"} hint="Synthetic flags" />
           </div>
+          {audit.length > 0 ? (() => {
+            const approveCount = audit.filter((a) => a.action === "approve").length;
+            const rejectCount = audit.filter((a) => a.action === "reject").length;
+            if (approveCount + rejectCount === 0) return null;
+            const bars = [
+              { label: "Approved", value: approveCount, color: "var(--good)" },
+              { label: "Rejected", value: rejectCount, color: "var(--danger)" },
+            ].filter((d) => d.value > 0);
+            return (
+              <div className="chart-card" style={{ marginBottom: "var(--space-4)" }}>
+                <h3>Credit decisions (last 40 audit rows)</h3>
+                <BarChart data={bars} height={120} />
+              </div>
+            );
+          })() : null}
           <section className="panel queue" aria-label="Approval queue">
             <div className="tabs" role="tablist">
               {(

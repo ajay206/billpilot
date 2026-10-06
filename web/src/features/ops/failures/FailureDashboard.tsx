@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { Api } from "../../../api";
-import { DataTable, Metric, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
+import { BarChart, DataTable, DonutChart, Metric, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
 import { age, partyName } from "../../../format";
 import type { Account } from "../../../types";
 
@@ -167,6 +167,19 @@ export function FailureDashboard({
   const openLetters = snapshot.deadLetters.filter((row) => row.status !== "replayed").length;
   const maxLag = snapshot.lag.topics.reduce((max, topic) => Math.max(max, topic.lag), 0);
 
+  const severityDonut = [
+    { label: "Critical", value: severityCount("critical"), color: "#8d2f2f" },
+    { label: "High", value: severityCount("high"), color: "#c0512a" },
+    { label: "Medium", value: severityCount("medium"), color: "#7a4e0d" },
+    { label: "Low", value: severityCount("low"), color: "#14663d" },
+  ].filter((d) => d.value > 0);
+
+  const topicBars = snapshot.lag.topics.slice(0, 8).map((t) => ({
+    label: t.topic.split(".").pop() ?? t.topic,
+    value: t.lag,
+    color: t.lag > 50 ? "#8d2f2f" : t.lag > 10 ? "#7a4e0d" : "var(--accent)",
+  }));
+
   return (
     <section className="panel" aria-label="Failure dashboard">
       <header className="panel-head">
@@ -203,6 +216,32 @@ export function FailureDashboard({
             <Metric label="Dead letters" value={openLetters} hint="Waiting for replay" />
             <Metric label="Max lag" value={maxLag} hint="Highest topic lag" />
           </div>
+          {(severityDonut.length > 0 || topicBars.length > 0) ? (
+            <div className="charts-row">
+              {severityDonut.length > 0 ? (
+                <div className="chart-card">
+                  <h3>Open incidents by severity</h3>
+                  <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+                    <DonutChart data={severityDonut} size={110} />
+                    <div className="chart-legend">
+                      {severityDonut.map((d) => (
+                        <div key={d.label} className="chart-legend-item">
+                          <span className="chart-legend-swatch" style={{ background: d.color }} />
+                          <span>{d.label}: {d.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {topicBars.length > 0 ? (
+                <div className="chart-card">
+                  <h3>Queue lag by topic</h3>
+                  <BarChart data={topicBars} height={140} />
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <h2>Incidents</h2>
           <DataTable
             label="Incidents"
