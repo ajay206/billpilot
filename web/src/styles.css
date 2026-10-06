@@ -186,7 +186,7 @@ a { color: var(--accent-deep); }
 }
 .login-brand .env-badge { align-self: flex-start; }
 
-.user-menu { position: relative; }
+.user-menu { position: relative; margin-left: auto; }
 .user-button {
   display: flex;
   align-items: center;
