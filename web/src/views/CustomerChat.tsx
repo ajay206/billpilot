@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { Api } from "../api";
 import { qs } from "../api";
 import { AnswerText, DataTable, Metric, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
-import { inr, partyName, when } from "../format";
+import { formatINR, formatIST, partyName } from "../format";
 import type { Account, Adjustment, Bill, ChatResponse, Citation, Dispute, Payment, Proposed, ToolCall, Usage } from "../types";
 
 type Turn = {
@@ -143,16 +143,16 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
         {!loading && !loadError && account && section === "overview" ? (
           <>
             <div className="metrics">
-              <Metric label="Latest bill" value={latest ? inr(latest.taxIncludedAmount) : "—"} hint={latest?.billNo} />
-              <Metric label="Amount due" value={latest ? inr(latest.amountDue) : "—"} hint={latest ? when(latest.billDate) : undefined} />
+              <Metric label="Latest bill" value={latest ? formatINR(latest.taxIncludedAmount) : "—"} hint={latest?.billNo} />
+              <Metric label="Amount due" value={latest ? formatINR(latest.amountDue) : "—"} hint={latest ? formatIST(latest.billDate) : undefined} />
               <Metric label="Open disputes" value={openDisputes} hint="Waiting on review" />
             </div>
             {latest ? (
               <article className="bill-chip">
                 <span>Bill {latest.billNo}</span>
-                <strong>{inr(latest.taxIncludedAmount)}</strong>
+                <strong>{formatINR(latest.taxIncludedAmount)}</strong>
                 <span>
-                  Due {inr(latest.amountDue)} · <StatusBadge status={latest.state} />
+                  Due {formatINR(latest.amountDue)} · <StatusBadge status={latest.state} />
                 </span>
               </article>
             ) : (
@@ -167,7 +167,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
                       <strong>{adjustment.adjustmentType === "credit" ? "Credit" : "Debit"}</strong>
                       <StatusBadge status={adjustment.status} />
                     </div>
-                    <p className="proposal-amount">{inr(adjustment.amount)}</p>
+                    <p className="proposal-amount">{formatINR(adjustment.amount)}</p>
                     <p>{adjustment.reason}</p>
                   </article>
                 ))}
@@ -182,10 +182,10 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
             empty="No bills on this account."
             columns={[
               { key: "bill", label: "Bill", render: (row) => row.billNo, value: (row) => row.billNo },
-              { key: "date", label: "Date", render: (row) => when(row.billDate), value: (row) => row.billDate },
+              { key: "date", label: "Date", render: (row) => formatIST(row.billDate), value: (row) => row.billDate },
               { key: "state", label: "State", render: (row) => <StatusBadge status={row.state} />, value: (row) => row.state },
-              { key: "total", label: "Total", render: (row) => inr(row.taxIncludedAmount), value: (row) => Number(row.taxIncludedAmount.value) },
-              { key: "due", label: "Due", render: (row) => inr(row.amountDue), value: (row) => Number(row.amountDue.value) },
+              { key: "total", label: "Total (incl. GST)", render: (row) => formatINR(row.taxIncludedAmount), value: (row) => Number(row.taxIncludedAmount.value), numeric: true },
+              { key: "due", label: "Amount Due", render: (row) => formatINR(row.amountDue), value: (row) => Number(row.amountDue.value), numeric: true },
             ]}
           />
         ) : null}
@@ -195,7 +195,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
             rows={usage}
             empty="No usage on this page."
             columns={[
-              { key: "when", label: "When", render: (row) => when(row.usageDate), value: (row) => row.usageDate },
+              { key: "when", label: "When", render: (row) => formatIST(row.usageDate), value: (row) => row.usageDate },
               { key: "what", label: "Usage", render: (row) => row.description, value: (row) => row.description },
               { key: "type", label: "Type", render: (row) => row.usageType, value: (row) => row.usageType },
             ]}
@@ -207,10 +207,10 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
             rows={payments}
             empty="No payments on this account."
             columns={[
-              { key: "date", label: "Date", render: (row) => when(row.paymentDate), value: (row) => row.paymentDate },
+              { key: "date", label: "Date", render: (row) => formatIST(row.paymentDate), value: (row) => row.paymentDate },
               { key: "status", label: "Status", render: (row) => <StatusBadge status={row.status} />, value: (row) => row.status },
               { key: "method", label: "Method", render: (row) => row.paymentMethod?.name || "—", value: (row) => row.paymentMethod?.name || "" },
-              { key: "amount", label: "Amount", render: (row) => inr(row.amount), value: (row) => Number(row.amount.value) },
+              { key: "amount", label: "Amount", render: (row) => formatINR(row.amount), value: (row) => Number(row.amount.value), numeric: true },
             ]}
           />
         ) : null}
@@ -227,7 +227,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
                 </div>
                 <p>{dispute.description}</p>
                 <p className="proposal-status">
-                  Status: {dispute.status} · {when(dispute.creationDate)}
+                  Status: {dispute.status} · {formatIST(dispute.creationDate)}
                 </p>
               </article>
             ))}
@@ -237,7 +237,7 @@ export function CustomerPortal({ api, section }: { api: Api; section: string }) 
                   <strong>{adjustment.adjustmentType === "credit" ? "Credit" : "Debit"}</strong>
                   <StatusBadge status={adjustment.status} />
                 </div>
-                <p className="proposal-amount">{inr(adjustment.amount)}</p>
+                <p className="proposal-amount">{formatINR(adjustment.amount)}</p>
                 <p>{adjustment.reason}</p>
                 <p className="proposal-status">
                   {adjustment.decidedBy ? `Decided by ${adjustment.decidedBy}` : "Waiting for ops to approve or reject it."}

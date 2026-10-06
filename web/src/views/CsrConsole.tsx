@@ -5,7 +5,7 @@ import { qs } from "../api";
 import { AnswerText, BarChart, DataTable, PolicyDrawer, ProposalCard, Skeleton, StatusBadge, extraCitations } from "../components";
 import { TroubleshootPanel } from "../features/csr/troubleshoot/TroubleshootPanel";
 import { OnboardingPanel } from "../features/onboarding/OnboardingPanel";
-import { characteristic, inr, partyName, when, whenTime } from "../format";
+import { characteristic, formatINR, formatIST, formatISTTime, partyName } from "../format";
 import type {
   Account,
   Adjustment,
@@ -221,10 +221,10 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 empty="No bills in scope."
                 columns={[
                   { key: "bill", label: "Bill", render: (row) => row.billNo, value: (row) => row.billNo },
-                  { key: "date", label: "Date", render: (row) => when(row.billDate), value: (row) => row.billDate },
+                  { key: "date", label: "Date", render: (row) => formatIST(row.billDate), value: (row) => row.billDate },
                   { key: "state", label: "State", render: (row) => <StatusBadge status={row.state} />, value: (row) => row.state },
-                  { key: "total", label: "Total", render: (row) => inr(row.taxIncludedAmount), value: (row) => Number(row.taxIncludedAmount.value) },
-                  { key: "due", label: "Due", render: (row) => inr(row.amountDue), value: (row) => Number(row.amountDue.value) },
+                  { key: "total", label: "Total (incl. GST)", render: (row) => formatINR(row.taxIncludedAmount), value: (row) => Number(row.taxIncludedAmount.value), numeric: true },
+                  { key: "due", label: "Amount Due", render: (row) => formatINR(row.amountDue), value: (row) => Number(row.amountDue.value), numeric: true },
                 ]}
               />
             ) : null}
@@ -261,7 +261,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                   columns={[
                     { key: "name", label: "Line", render: (row) => row.name, value: (row) => row.name },
                     { key: "type", label: "Type", render: (row) => row.appliedBillingRateType, value: (row) => row.appliedBillingRateType },
-                    { key: "amount", label: "Amount", render: (row) => inr(row.taxExcludedAmount), value: (row) => Number(row.taxExcludedAmount.value) },
+                    { key: "amount", label: "Amount (excl. GST)", render: (row) => formatINR(row.taxExcludedAmount), value: (row) => Number(row.taxExcludedAmount.value), numeric: true },
                   ]}
                 />
               </>
@@ -272,7 +272,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 rows={usage}
                 empty="No usage in the latest page."
                 columns={[
-                  { key: "when", label: "When", render: (row) => whenTime(row.usageDate), value: (row) => row.usageDate },
+                  { key: "when", label: "When", render: (row) => formatISTTime(row.usageDate), value: (row) => row.usageDate },
                   { key: "what", label: "Usage", render: (row) => row.description, value: (row) => row.description },
                   { key: "type", label: "Type", render: (row) => row.usageType, value: (row) => row.usageType },
                   {
@@ -290,10 +290,10 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                 rows={payments}
                 empty="No payments."
                 columns={[
-                  { key: "date", label: "Date", render: (row) => when(row.paymentDate), value: (row) => row.paymentDate },
+                  { key: "date", label: "Date", render: (row) => formatIST(row.paymentDate), value: (row) => row.paymentDate },
                   { key: "status", label: "Status", render: (row) => <StatusBadge status={row.status} />, value: (row) => row.status },
                   { key: "method", label: "Method", render: (row) => row.paymentMethod?.name || "—", value: (row) => row.paymentMethod?.name || "" },
-                  { key: "amount", label: "Amount", render: (row) => inr(row.amount), value: (row) => Number(row.amount.value) },
+                  { key: "amount", label: "Amount", render: (row) => formatINR(row.amount), value: (row) => Number(row.amount.value), numeric: true },
                 ]}
               />
             ) : null}
@@ -306,7 +306,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                     </p>
                     <p className="muted">
                       {account.treatment.holdReason ? `Hold: ${account.treatment.holdReason}. ` : "No hold. "}
-                      Started {when(account.treatment.startedAt)}.
+                      Started {formatIST(account.treatment.startedAt)}.
                     </p>
                   </>
                 ) : (
@@ -324,7 +324,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                   { key: "name", label: "Ticket", render: (row) => row.name, value: (row) => row.name },
                   { key: "status", label: "Status", render: (row) => row.status, value: (row) => row.status },
                   { key: "severity", label: "Severity", render: (row) => row.severity, value: (row) => row.severity },
-                  { key: "when", label: "Opened", render: (row) => when(row.creationDate), value: (row) => row.creationDate },
+                  { key: "when", label: "Opened", render: (row) => formatIST(row.creationDate), value: (row) => row.creationDate },
                 ]}
               />
             ) : null}
@@ -346,7 +346,7 @@ export function CsrConsole({ api, account }: { api: Api; account: Account | null
                       <strong>{adjustment.adjustmentType}</strong>
                       <StatusBadge status={adjustment.status} />
                     </div>
-                    <p className="proposal-amount">{inr(adjustment.amount)}</p>
+                    <p className="proposal-amount">{formatINR(adjustment.amount)}</p>
                     <p>{adjustment.reason}</p>
                     <p className="proposal-status">Status: {adjustment.status}</p>
                   </article>

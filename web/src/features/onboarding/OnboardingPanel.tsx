@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 
 import { ApiError } from "../../api";
 import type { Api } from "../../api";
-import { inr } from "../../format";
+import { formatINR } from "../../format";
 
 type Preview = {
   posted: boolean;
@@ -142,7 +142,7 @@ export function OnboardingPanel({ api }: { api: Api }) {
           </p>
           <p className="muted">
             Treatment {result.treatmentStage} ({result.treatmentStatus}) · Credit {result.creditClass} · limit{" "}
-            {inr(result.creditLimit)}
+            {formatINR(result.creditLimit)}
           </p>
           <ul>
             {result.entitlements.map((row) => (
@@ -152,12 +152,12 @@ export function OnboardingPanel({ api }: { api: Api }) {
             ))}
           </ul>
           {result.vas.length ? <p>Opted-in VAS: {result.vas.join(", ")}</p> : <p>No VAS opted in.</p>}
-          <h4>First bill preview · {inr(result.firstBillPreview.total)}</h4>
+          <h4>First bill preview · {formatINR(result.firstBillPreview.total)}</h4>
           <p className="muted">Not posted. Due {result.firstBillPreview.dueDate}.</p>
           <ul>
             {result.firstBillPreview.lines.map((line) => (
               <li key={line.description}>
-                {line.description}: {inr(line.amount)}
+                {line.description}: {formatINR(line.amount)}
               </li>
             ))}
           </ul>

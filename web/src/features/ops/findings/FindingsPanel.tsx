@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { Api } from "../../../api";
 import { BarChart, DataTable, SeverityBadge, Skeleton, StatusBadge } from "../../../components";
-import { inr, when } from "../../../format";
+import { formatINR, formatIST } from "../../../format";
 import type { Account } from "../../../types";
 
 type EvidenceField = { label: string; value: string | number; kind: string };
@@ -63,8 +63,8 @@ function hasAmount(evidence: Record<string, unknown>): boolean {
 }
 
 function fieldText(field: EvidenceField): string {
-  if (field.kind === "money") return inr(String(field.value));
-  if (field.kind === "date") return when(String(field.value));
+  if (field.kind === "money") return formatINR(String(field.value));
+  if (field.kind === "date") return formatIST(String(field.value));
   return String(field.value);
 }
 
@@ -176,8 +176,8 @@ export function FindingsPanel({
       setRows((current) => replaceFinding(current, result.data.finding));
       setNotice(
         result.data.duplicate
-          ? `Credit ${inr(result.data.amount)} is already ${result.data.status.replaceAll("_", " ")}.`
-          : `Credit ${inr(result.data.amount)} is ${result.data.status.replaceAll("_", " ")}. You proposed it, so you cannot approve it.`,
+          ? `Credit ${formatINR(result.data.amount)} is already ${result.data.status.replaceAll("_", " ")}.`
+          : `Credit ${formatINR(result.data.amount)} is ${result.data.status.replaceAll("_", " ")}. You proposed it, so you cannot approve it.`,
       );
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not propose a credit.");
@@ -362,7 +362,7 @@ export function FindingsPanel({
                     )}
                     {row.adjustmentStatus ? (
                       <p>
-                        Credit {inr(row.adjustmentAmount)} · <StatusBadge status={row.adjustmentStatus} />
+                        Credit {formatINR(row.adjustmentAmount)} · <StatusBadge status={row.adjustmentStatus} />
                       </p>
                     ) : hasAmount(row.evidence) ? (
                       <button className="ghost" type="button" onClick={() => void propose(row.id)} disabled={busyId === row.id}>

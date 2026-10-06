@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import type { Api } from "../../../api";
 import { Metric, Skeleton } from "../../../components";
-import { inr, when } from "../../../format";
+import { formatINR, formatIST } from "../../../format";
 
 type ReportRow = {
   id: string;
@@ -66,14 +66,14 @@ function header(key: string): string {
 
 function cell(column: string, value: unknown): string {
   if (value == null || value === "") return "—";
-  if (MONEY.has(column)) return inr(String(value));
+  if (MONEY.has(column)) return formatINR(String(value));
   if (column === "estimated_cost_usd") return `$${value}`;
-  if (column.endsWith("_date") || column === "issue_date") return when(String(value));
+  if (column.endsWith("_date") || column === "issue_date") return formatIST(String(value));
   return String(value);
 }
 
 function kpi(key: string, value: string | number): string {
-  if (MONEY.has(key) || key.endsWith("_amount")) return inr(String(value));
+  if (MONEY.has(key) || key.endsWith("_amount")) return formatINR(String(value));
   if (key === "estimated_cost_usd") return `$${value}`;
   return String(value);
 }
@@ -206,7 +206,7 @@ export function ReportsPanel({ api }: { api: Api }) {
           {current ? (
             <>
               <p className="muted">
-                {when(current.periodStart)} to {when(current.periodEnd)} · {current.rowCount}{" "}
+                {formatIST(current.periodStart)} to {formatIST(current.periodEnd)} · {current.rowCount}{" "}
                 {current.rowCount === 1 ? "row" : "rows"} · {current.generatedBy}
               </p>
               <div className="metrics">

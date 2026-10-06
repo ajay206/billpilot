@@ -1,35 +1,61 @@
 import type { Money } from "./types";
 
-export function inr(amount: Money | string | null | undefined): string {
+const INR_FMT = new Intl.NumberFormat("en-IN", {
+  style: "currency",
+  currency: "INR",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const IST_DATE_FMT = new Intl.DateTimeFormat("en-IN", {
+  timeZone: "Asia/Kolkata",
+  dateStyle: "medium",
+});
+
+const IST_DATETIME_FMT = new Intl.DateTimeFormat("en-IN", {
+  timeZone: "Asia/Kolkata",
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+/** Format a money value as ₹ with en-IN grouping (e.g. ₹1,23,456.00). */
+export function formatINR(amount: Money | string | null | undefined): string {
   const raw = typeof amount === "string" ? amount : amount?.value;
   if (!raw) return "—";
   const value = Number(raw);
   if (Number.isNaN(value)) return `₹${raw}`;
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
+  return INR_FMT.format(value);
 }
 
-export function when(iso: string | null | undefined): string {
+/** Format an ISO date-string as a date in IST (no time). */
+export function formatIST(iso: string | null | undefined): string {
   if (!iso) return "—";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso.slice(0, 10);
-  return new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric" }).format(date);
+  return IST_DATE_FMT.format(date);
 }
 
-export function whenTime(iso: string | null | undefined): string {
+/** Format an ISO date-string as a date+time in IST. */
+export function formatISTTime(iso: string | null | undefined): string {
   if (!iso) return "—";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso.slice(0, 16);
-  return new Intl.DateTimeFormat("en-IN", {
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(date);
+  return IST_DATETIME_FMT.format(date);
+}
+
+/** @deprecated Use formatINR */
+export function inr(amount: Money | string | null | undefined): string {
+  return formatINR(amount);
+}
+
+/** @deprecated Use formatIST */
+export function when(iso: string | null | undefined): string {
+  return formatIST(iso);
+}
+
+/** @deprecated Use formatISTTime */
+export function whenTime(iso: string | null | undefined): string {
+  return formatISTTime(iso);
 }
 
 export function age(iso: string | null | undefined, now = Date.now()): string {

@@ -255,19 +255,21 @@ type Column<T> = {
   label: string;
   render: (row: T) => ReactNode;
   value?: (row: T) => string | number;
+  /** Right-align header and cells for numeric/currency columns. */
+  numeric?: boolean;
 };
 
 export function DataTable<T extends { id: string }>({
   columns,
   rows,
-  empty,
+  empty = "No records yet.",
   loading = false,
   pageSize = 8,
   label = "Data",
 }: {
   columns: Column<T>[];
   rows: T[];
-  empty: string;
+  empty?: string;
   loading?: boolean;
   pageSize?: number;
   label?: string;
@@ -346,7 +348,7 @@ export function DataTable<T extends { id: string }>({
                   const active = sortKey === column.key;
                   const ariaSort = !column.value ? undefined : active ? (sortDir === "asc" ? "ascending" : "descending") : "none";
                   return (
-                    <th key={column.key} aria-sort={ariaSort}>
+                    <th key={column.key} aria-sort={ariaSort} className={column.numeric ? "num" : undefined}>
                       {column.value ? (
                         <button type="button" className="sort" onClick={() => toggleSort(column.key)}>
                           {column.label}
@@ -364,7 +366,7 @@ export function DataTable<T extends { id: string }>({
               {visible.map((row) => (
                 <tr key={row.id}>
                   {columns.map((column) => (
-                    <td key={column.key}>{column.render(row)}</td>
+                    <td key={column.key} className={column.numeric ? "num" : undefined}>{column.render(row)}</td>
                   ))}
                 </tr>
               ))}

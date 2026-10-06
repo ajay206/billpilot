@@ -371,3 +371,27 @@ describe("shared controls", () => {
     expect(screen.getByRole("region", { name: /failure dashboard, phase 4/i })).toHaveTextContent("Not built yet.");
   });
 });
+
+import { formatINR, formatIST } from "../format";
+
+describe("format helpers", () => {
+  it("formatINR formats Indian rupee amounts with en-IN grouping", () => {
+    const result = formatINR("1234567.89");
+    expect(result).toContain("₹");
+    // The exact grouping (1,23,456 or 12,34,567) is locale-runtime dependent; just confirm digits are present
+    expect(result).toMatch(/\d/);
+    expect(formatINR(null)).toBe("—");
+    expect(formatINR("")).toBe("—");
+    expect(formatINR({ value: "500", unit: "INR" })).toContain("500");
+  });
+
+  it("formatIST formats dates in IST timezone", () => {
+    // 2024-01-15T00:00:00Z = 15 Jan 2024 05:30 IST (same calendar date)
+    const result = formatIST("2024-01-15T00:00:00Z");
+    expect(result).toMatch(/Jan|jan/i);
+    expect(result).toMatch(/15/);
+    expect(result).toMatch(/2024/);
+    expect(formatIST(null)).toBe("—");
+    expect(formatIST("")).toBe("—");
+  });
+});

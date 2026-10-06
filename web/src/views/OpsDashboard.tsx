@@ -9,7 +9,7 @@ import { OnboardingPanel } from "../features/onboarding/OnboardingPanel";
 import { FailureDashboard } from "../features/ops/failures/FailureDashboard";
 import { FindingsPanel } from "../features/ops/findings/FindingsPanel";
 import { ReportsPanel } from "../features/ops/reports/ReportsPanel";
-import { actorLabel, inr, partyName, whenTime } from "../format";
+import { actorLabel, formatINR, formatISTTime, partyName } from "../format";
 import type { Account, Adjustment, AgentRun, AuditEntry } from "../types";
 
 type Queue = "credits" | "unbars" | "plans";
@@ -187,14 +187,14 @@ export function OpsDashboard({
                       <div>
                         <div className="proposal-top">
                           <strong>
-                            {inr(item.amount)} {item.adjustmentType}
+                            {formatINR(item.amount)} {item.adjustmentType}
                           </strong>
                           <StatusBadge status={item.status} />
                         </div>
                         <p>{item.reason}</p>
                         <p className="muted">
                           {item.billingAccount.name ? `${item.billingAccount.name} · ` : ""}
-                          Proposed by {actorLabel(item.proposedBy)} · {whenTime(item.creationDate)}
+                          Proposed by {actorLabel(item.proposedBy)} · {formatISTTime(item.creationDate)}
                         </p>
                       </div>
                       <div className="decide">
@@ -206,7 +206,7 @@ export function OpsDashboard({
                             setDecision({
                               id: item.id,
                               decision: "approve",
-                              amount: inr(item.amount),
+                              amount: formatINR(item.amount),
                               reason: item.reason,
                             })
                           }
@@ -221,7 +221,7 @@ export function OpsDashboard({
                             setDecision({
                               id: item.id,
                               decision: "reject",
-                              amount: inr(item.amount),
+                              amount: formatINR(item.amount),
                               reason: item.reason,
                             })
                           }
@@ -254,7 +254,7 @@ export function OpsDashboard({
             rows={runs}
             empty="No copilot turns yet."
             columns={[
-              { key: "when", label: "When", render: (row) => whenTime(row.occurredAt), value: (row) => row.occurredAt },
+              { key: "when", label: "When", render: (row) => formatISTTime(row.occurredAt), value: (row) => row.occurredAt },
               { key: "who", label: "Persona", render: (row) => row.persona, value: (row) => row.persona },
               { key: "decision", label: "Decision", render: (row) => row.decision, value: (row) => row.decision },
               {
@@ -278,7 +278,7 @@ export function OpsDashboard({
             rows={audit}
             empty="No audit rows."
             columns={[
-              { key: "when", label: "When", render: (row) => whenTime(row.occurredAt), value: (row) => row.occurredAt },
+              { key: "when", label: "When", render: (row) => formatISTTime(row.occurredAt), value: (row) => row.occurredAt },
               { key: "actor", label: "Actor", render: (row) => `${row.actorRole} · ${row.actorId}`, value: (row) => row.actorId },
               { key: "action", label: "Action", render: (row) => row.action, value: (row) => row.action },
               { key: "resource", label: "Resource", render: (row) => row.resourceType, value: (row) => row.resourceType },
